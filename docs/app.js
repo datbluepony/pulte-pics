@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 12; // bump with docs/version.txt on every release
+const VERSION = 13; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;      // closer than this counts as being at the lot
@@ -680,6 +680,8 @@ $('#btn-done').addEventListener('click', async () => {
 // ---------- rapid camera ----------
 
 let stream = null;
+let tilt = 0;     // which way the phone is turned: 1 = top to the left, -1 = top to the right, 0 = upright
+let gSign = Number(store.get('gSign', 0)); // +1 or -1: browsers disagree on the sign of gravity readings
 let lenses = [];                       // back cameras this phone offers: [{ id, label }]
 let lensId = store.get('lens', '');    // the one in use, remembered between lots
 const video = $('#cam-video');
@@ -703,7 +705,49 @@ async function findLenses() {
   $('#cam-lenses').innerHTML = lenses.length > 1 ? lenses.map(l => `<button data-lens="${esc(l.id)}" class="${l.id === (lensId || live) ? 'on' : ''}">${esc(l.label)}</button>`).join('') : '';
 }
 
+/** Read which way the phone is physically turned, even with rotation lock on. */
+function onMotion(e) {
+  const g = e.accelerationIncludingGravity;
+  if (!g || g.x == null || g.y == null) return;
+  if (!gSign) {
+    // learn the sign once while the phone is upright (it is, when "Take photos" is tapped)
+    if (Math.abs(g.y) > 7 && Math.abs(g.x) < 3) { gSign = g.y > 0 ? 1 : -1; store.set('gSign', gSign); }
+    else return;
+  }
+  const x = g.x * gSign, y = g.y * gSign;
+  const t = Math.abs(x) > Math.abs(y) + 1.5 ? (x > 0 ? 1 : -1) : Math.abs(y) > Math.abs(x) + 1.5 ? 0 : tilt;
+  if (t === tilt) return;
+  tilt = t;
+  // controls follow the phone when the screen itself does not rotate
+  const sideways = window.innerHeight > window.innerWidth;
+  $('#camera').classList.toggle('tilt-l', sideways && tilt === 1);
+  $('#camera').classList.toggle('tilt-r', sideways && tilt === -1);
+}
+
+/** The frame turned so the picture is always level with the ground: a sideways phone gives a landscape photo. */
+function uprightFrame(src, w, h) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  // a tall frame from a phone held sideways (rotation lock, or the screen not yet turned) gets turned level
+  const turn = h > w ? (tilt || (window.innerWidth > window.innerHeight ? 1 : 0)) : 0;
+  if (!turn) {
+    c.width = w; c.height = h;
+    ctx.drawImage(src, 0, 0, w, h);
+  } else {
+    c.width = h; c.height = w;
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(turn === 1 ? -Math.PI / 2 : Math.PI / 2);
+    ctx.drawImage(src, -w / 2, -h / 2, w, h);
+  }
+  c.turned = !!turn;
+  return c;
+}
+
 async function openCamera() {
+  // iPhone only shares motion readings after a tap, and this runs straight from one
+  const ask = window.DeviceMotionEvent && DeviceMotionEvent.requestPermission ? DeviceMotionEvent.requestPermission().catch(() => 'denied') : Promise.resolve('granted');
+  window.addEventListener('devicemotion', onMotion);
+  ask.then(r => { if (r !== 'granted') $('#cam-top').textContent += ' · motion access off: photos are saved landscape'; });
   $('#camera').classList.remove('hide');
   $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
   $('#cam-top').textContent = 'Lot ' + currentLot + ' · starting camera...';
@@ -747,6 +791,7 @@ function showCamSize() {
 video.addEventListener('resize', () => { if (stream) showCamSize(); });
 
 function closeCamera() {
+  window.removeEventListener('devicemotion', onMotion);
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null;
   video.srcObject = null;
@@ -757,15 +802,13 @@ function closeCamera() {
 
 $('#cam-shutter').addEventListener('click', async () => {
   if (!video.videoWidth) return;
-  // grab the frame first so the photo is the moment of the tap
-  const c = document.createElement('canvas');
-  c.width = video.videoWidth; c.height = video.videoHeight;
-  c.getContext('2d').drawImage(video, 0, 0);
+  // grab the frame first so the photo is the moment of the tap, turned level with the ground
+  const c = uprightFrame(video, video.videoWidth, video.videoHeight);
   const flash = $('#cam-flash');
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
   let blob = null;
   // phones that offer a true still-photo capture (not iPhone, today) use it for full sensor quality
-  if (window.ImageCapture && stream) {
+  if (window.ImageCapture && stream && !c.turned) {
     try { blob = await new ImageCapture(stream.getVideoTracks()[0]).takePhoto(); } catch (err) { blob = null; }
   }
   if (!blob) blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.97));
@@ -915,6 +958,23 @@ async function syncConfig() {
   settings.backend = out.version || 1;
   store.set('settings', settings);
 }
+
+$('#btn-wipe').addEventListener('click', async () => {
+  if (!confirm('Delete every photo run from Google Drive and clear this phone? Your agents, links and settings stay. This cannot be undone.')) return;
+  if (!confirm('Really delete all photos and runs?')) return;
+  try {
+    const out = settings.url ? await api('wipe', {}) : { runs: 0 };
+    run = null; saveRun();
+    history = {}; store.set('history', history);
+    delivery = { lastOk: '', lastError: '' }; store.set('delivery', delivery);
+    memQueue.length = 0;
+    try { await tx('readwrite', s => s.clear()); } catch (e) { /* nothing stored */ }
+    alert('Done. ' + out.runs + ' photo run' + (out.runs === 1 ? '' : 's') + ' removed from Google Drive. You are starting fresh.');
+    renderSettings(); renderRun(); setStatus('Connected.');
+  } catch (e) {
+    alert(/Unknown action/.test(e.message) ? 'The Google script needs updating first (paste the new Code.gs and deploy a new version).' : 'Could not wipe: ' + e.message);
+  }
+});
 
 $('#btn-save').addEventListener('click', async () => {
   settings = Object.assign(settings, { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 13, nextRun: $('#set-next').value || '' });

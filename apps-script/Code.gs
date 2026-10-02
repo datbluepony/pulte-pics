@@ -58,6 +58,7 @@ function route_(req) {
     case 'ping': return config_();
     case 'saveAgents': return saveAgents_(req);
     case 'plan': return plan_(req);
+    case 'wipe': return wipe_();
     case 'upload': return upload_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
@@ -83,7 +84,7 @@ function teamKey_() {
 
 function config_() {
   return {
-    version: 3,
+    version: 4,
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
     agents: agents_(),
@@ -423,6 +424,20 @@ function notify_(req) {
 
 function esc_(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Start fresh: trash every photo run and forget the lot lists. Agents, links and settings stay. */
+function wipe_() {
+  let runs = 0;
+  const communities = rootFolder_().getFolders();
+  while (communities.hasNext()) {
+    const c = communities.next();
+    if (c.isTrashed()) continue;
+    const dates = c.getFolders();
+    while (dates.hasNext()) { dates.next().setTrashed(true); runs++; }
+  }
+  PROPS.deleteProperty('PLANS');
+  return { runs: runs };
 }
 
 // ---------- expiry ----------
