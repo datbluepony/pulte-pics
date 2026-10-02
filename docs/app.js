@@ -87,9 +87,35 @@ const tx = async (mode, fn) => {
     t.onerror = () => reject(t.error);
   });
 };
-const queuePut = item => tx('readwrite', s => s.put(item));
-const queueDel = id => tx('readwrite', s => s.delete(id));
-const queueAll = async () => (await tx('readonly', s => s.getAll())).sort((a, b) => a.t - b.t);
+// If the phone refuses to store an item, it waits in memory instead, so nothing taken is dropped
+// while the app stays open.
+const memQueue = [];
+const queuePut = async item => {
+  try { await tx('readwrite', s => s.put(item)); } catch (e) { memQueue.push(item); }
+};
+const queueDel = async id => {
+  const i = memQueue.findIndex(m => m.id === id);
+  if (i >= 0) { memQueue.splice(i, 1); return; }
+  await tx('readwrite', s => s.delete(id));
+};
+const queueAll = async () => {
+  let stored = [];
+  try { stored = await tx('readonly', s => s.getAll()); } catch (e) { /* storage unavailable: memory only */ }
+  return stored.concat(memQueue).sort((a, b) => a.t - b.t);
+};
+
+/** Drop photos that were counted but never made it into the queue, so the numbers are honest. */
+async function reconcile() {
+  if (!run) return;
+  const items = await queueAll();
+  run.lots.forEach(l => {
+    const waiting = items.filter(i => i.type === 'photo' && i.date === run.date && i.lot === l.lot).map(i => i.name);
+    l.seq = Math.max(l.seq || 0, l.count || 0);
+    l.photos = (l.photos || []).filter(ph => ph.id || waiting.indexOf(ph.name) >= 0);
+    l.count = l.sent + waiting.length;
+  });
+  saveRun();
+}
 
 let pumping = false;
 let wakeLock = null;
@@ -142,7 +168,7 @@ async function pump() {
       setStatus('Sending lot ' + it.lot + '. ' + photos + ' photos left. Keep this screen open.', 'busy');
       try {
         if (it.type === 'photo') {
-          const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.blob) });
+          const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.buf ? new Blob([it.buf]) : it.blob) });
           const lot = run && run.date === it.date && lotOf(it.lot);
           if (lot) {
             lot.sent++;
@@ -577,10 +603,13 @@ async function makeThumb(source) {
 /** Queue one photo for upload. The file goes up untouched. */
 async function queuePhoto(blob, ext, thumbSource) {
   const l = lotOf(currentLot);
+  l.seq = Math.max(l.seq || 0, l.count) + 1; // never reuse a file name, even after a lost photo
+  const name = 'Lot ' + l.lot + ' - ' + run.date + ' - ' + String(l.seq).padStart(2, '0') + '.' + ext;
+  // stored as raw bytes: iPhone can refuse to store photo objects themselves
+  const buf = await new Response(blob).arrayBuffer();
+  await queuePut({ id: run.date + '/' + l.lot + '/' + l.seq, type: 'photo', t: Date.now() + l.seq / 1000, community: run.community, date: run.date, agent: l.agent, lot: l.lot, name: name, mime: blob.type || 'image/jpeg', buf: buf });
   l.count++;
-  const name = 'Lot ' + l.lot + ' - ' + run.date + ' - ' + String(l.count).padStart(2, '0') + '.' + ext;
   (l.photos = l.photos || []).push({ name: name, thumb: await makeThumb(thumbSource || blob), id: '' });
-  await queuePut({ id: run.date + '/' + l.lot + '/' + l.count, type: 'photo', t: Date.now() + l.count / 1000, community: run.community, date: run.date, agent: l.agent, lot: l.lot, name: name, mime: blob.type || 'image/jpeg', blob: blob });
   saveRun();
 }
 
@@ -800,8 +829,9 @@ $('#btn-save').addEventListener('click', async () => {
 
 // ---------- start ----------
 
-fetch('lots.json').then(r => r.json()).then(m => {
+fetch('lots.json').then(r => r.json()).then(async m => {
   master = m;
+  await reconcile();
   renderRun();
   if (settings.url) { setStatus('Connected.'); pump(); }
   else show('settings');
