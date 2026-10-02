@@ -38,7 +38,7 @@ let history = store.get('history', {});    // lot -> { date, stage } from the la
 let master = { lots: {}, image: { w: 1, h: 1 } };
 let currentLot = null;
 let lotStep = 'find';
-let zoom = 1;
+let zoom = 4;
 
 function saveRun() {
   try { store.set('run', run); } catch (e) {
@@ -348,8 +348,10 @@ async function planRoute(fromHere) {
   const done = run.order.filter(n => lotOf(n) && lotOf(n).done);
   run.lots.filter(l => l.done && done.indexOf(l.lot) < 0).forEach(l => done.push(l.lot));
   const start = (fromHere && myMapPoint()) || START;
-  const order = await Route.plan(todo.map(n => master.lots[n]), start, master.grid.cell);
-  run.order = done.concat(order.map(i => todo[i]));
+  const plan = await Route.plan(todo.map(n => master.lots[n]), start, master.grid.cell);
+  run.order = done.concat(plan.order.map(i => todo[i]));
+  run.paths = run.paths || {};   // lot -> road path that leads to it
+  plan.order.forEach((i, k) => { run.paths[todo[i]] = plan.paths[k]; });
   run.phase = 'route';
   saveRun();
   renderRun();
@@ -438,6 +440,21 @@ function lotAt(pt) {
   return best;
 }
 
+let drive = { lot: null, from: null, pts: null }; // road path from where you are to the lot
+
+/** Keep the driving line fresh: recompute when the lot changes or you have moved about 25 m. */
+function refreshDrive(me) {
+  const moved = !drive.from || Math.hypot(me[0] - drive.from[0], me[1] - drive.from[1]) * master.geo.mPerPx > 25;
+  if (drive.lot === currentLot && !moved) return;
+  const lot = currentLot;
+  drive = { lot: lot, from: me, pts: drive.lot === lot ? drive.pts : null };
+  Route.path(me, master.lots[lot], master.grid.cell).then(pts => {
+    if (drive.lot !== lot) return;
+    drive.pts = pts;
+    renderFind();
+  });
+}
+
 function renderFind() {
   if (currentLot == null || lotStep !== 'find' || !master.lots[currentLot]) return;
   const [x, y] = master.lots[currentLot];
@@ -460,6 +477,17 @@ function renderFind() {
   $('#arrow').style.transform = 'rotate(' + (me ? Math.atan2(dx, -dy) * 180 / Math.PI - (heading || 0) : 0) + 'deg)';
   $('#arrow').style.opacity = me ? 1 : 0.25;
   dot.classList.toggle('hide', !me);
+  // driving line in screen pixels
+  let line = '';
+  if (me) {
+    refreshDrive(me);
+    if (drive.lot === currentLot && drive.pts) {
+      const scr = [];
+      for (let i = 0; i < drive.pts.length; i += 2) scr.push((w / 2 + (drive.pts[i] - cx) * z).toFixed(1), (h / 2 + (drive.pts[i + 1] - cy) * z).toFixed(1));
+      line = polyline(scr, '#fff', 7) + polyline(scr, '#1a73e8', 4);
+    }
+  }
+  $('#mini-path').innerHTML = line;
   if (!me) {
     here.classList.add('hide');
     $('#find-dist').textContent = pos ? 'You are not at Verdana Village' : 'Finding you...';
@@ -641,10 +669,36 @@ $('#cam-close').addEventListener('click', closeCamera);
 
 // ---------- map ----------
 
+const ZOOM_MAX = 24;
+const polyline = (flat, color, width) => `<polyline points="${flat.join(' ')}" stroke="${color}" stroke-width="${width}"/>`;
+
+/** Resize the map keeping the given screen point (relative to the map box) still. Pins keep their size. */
+function setZoom(z, fx, fy) {
+  const inner = $('#mapinner'), wrap = $('#mapwrap');
+  z = Math.max(1, Math.min(ZOOM_MAX, z));
+  const k = z / zoom;
+  if (fx == null) { fx = wrap.clientWidth / 2; fy = wrap.clientHeight / 2; }
+  const sx = (wrap.scrollLeft + fx) * k - fx, sy = (wrap.scrollTop + fy) * k - fy;
+  zoom = z;
+  inner.style.width = Math.round(wrap.clientWidth * zoom) + 'px';
+  // zoomed out, stops are plain dots; zoomed in, small numbered pins that stay the same size as the map grows
+  inner.classList.toggle('far', zoom < 2.5);
+  inner.style.setProperty('--pin', zoom < 2.5 ? '6px' : '11px');
+  wrap.scrollLeft = sx;
+  wrap.scrollTop = sy;
+}
+
+function centerOn(lot) {
+  if (!master.lots[lot]) return;
+  const inner = $('#mapinner'), wrap = $('#mapwrap');
+  const [x, y] = master.lots[lot];
+  const w = inner.clientWidth, h = w * master.image.h / master.image.w;
+  wrap.scrollLeft = x / master.image.w * w - wrap.clientWidth / 2;
+  wrap.scrollTop = y / master.image.h * h - wrap.clientHeight / 2;
+}
+
 function renderMap(center) {
   const inner = $('#mapinner');
-  const wrap = $('#mapwrap');
-  inner.style.width = Math.round(wrap.clientWidth * zoom) + 'px';
   const next = run && run.phase === 'route' ? nextLot() : null;
   const pins = !run ? '' : run.lots.filter(l => master.lots[l.lot]).map(l => {
     const [x, y] = master.lots[l.lot];
@@ -654,32 +708,40 @@ function renderMap(center) {
   }).join('');
   const me = myMapPoint();
   const meDot = me ? `<div class="me" style="left:${(me[0] / master.image.w * 100).toFixed(2)}%;top:${(me[1] / master.image.h * 100).toFixed(2)}%"></div>` : '';
-  // route line: grey where you have been, blue for what is left
+  // the drive along the roads: grey where you have been, blue for what is left
   let line = '';
-  if (run && run.phase === 'route') {
-    const pts = run.order.filter(n => master.lots[n]);
-    const firstTodo = pts.findIndex(n => !lotOf(n).done);
-    const path = list => list.map(n => master.lots[n].join(',')).join(' ');
-    const donePts = firstTodo < 0 ? pts : pts.slice(0, firstTodo + 1);
-    const todoPts = firstTodo < 0 ? [] : pts.slice(firstTodo);
-    line = `<svg class="routeline" viewBox="0 0 ${master.image.w} ${master.image.h}" preserveAspectRatio="none">
-      <polyline points="${path(donePts)}" stroke="#7b8794"/><polyline points="${path(todoPts)}" stroke="#1a73e8"/></svg>`;
+  if (run && run.phase === 'route' && run.paths) {
+    const legs = run.order.filter(n => run.paths[n]);
+    const draw = (done, color) => legs.filter(n => lotOf(n).done === done).map(n => polyline(run.paths[n], '#fff', 5) + polyline(run.paths[n], color, 3)).join('');
+    line = `<svg class="routeline" viewBox="0 0 ${master.image.w} ${master.image.h}" preserveAspectRatio="none">${draw(true, '#7b8794')}${draw(false, '#1a73e8')}</svg>`;
   }
   inner.innerHTML = '<img src="map.jpg" alt="Verdana Village site map">' + line + pins + meDot;
-  const focus = next || (run && run.lots[0] && run.lots[0].lot);
-  if (center && master.lots[focus]) {
-    const [x, y] = master.lots[focus];
-    const w = inner.clientWidth, h = w * master.image.h / master.image.w;
-    wrap.scrollLeft = x / master.image.w * w - wrap.clientWidth / 2;
-    wrap.scrollTop = y / master.image.h * h - wrap.clientHeight / 2;
-  }
+  setZoom(zoom);
+  if (center) centerOn(next || (run && run.lots[0] && run.lots[0].lot));
 }
-$('#zoom-in').addEventListener('click', () => { zoom = Math.min(20, zoom * 1.6); renderMap(true); });
-$('#zoom-out').addEventListener('click', () => { zoom = Math.max(1, zoom / 1.6); renderMap(true); });
-$('#zoom-next').addEventListener('click', () => { zoom = Math.max(zoom, 6); renderMap(true); });
+$('#zoom-in').addEventListener('click', () => setZoom(zoom * 1.6));
+$('#zoom-out').addEventListener('click', () => setZoom(zoom / 1.6));
+$('#zoom-next').addEventListener('click', () => { setZoom(Math.max(zoom, 6)); centerOn(nextLot()); });
 $('#mapinner').addEventListener('click', e => {
   if (e.target.dataset.lot && run.phase === 'route') openLot(Number(e.target.dataset.lot));
 });
+
+// pinch to zoom the map itself (not the page), so pins and the route line stay thin
+(function () {
+  const wrap = $('#mapwrap');
+  let startDist = 0, startZoom = 1;
+  const spread = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  wrap.addEventListener('touchstart', e => { if (e.touches.length === 2) { startDist = spread(e.touches); startZoom = zoom; } }, { passive: true });
+  wrap.addEventListener('touchmove', e => {
+    if (e.touches.length !== 2 || !startDist) return;
+    e.preventDefault();
+    const box = wrap.getBoundingClientRect();
+    setZoom(startZoom * spread(e.touches) / startDist, (e.touches[0].clientX + e.touches[1].clientX) / 2 - box.left, (e.touches[0].clientY + e.touches[1].clientY) / 2 - box.top);
+  }, { passive: false });
+  wrap.addEventListener('touchend', e => { if (e.touches.length < 2) startDist = 0; });
+  // iPhone would otherwise zoom the whole page
+  ['gesturestart', 'gesturechange'].forEach(ev => wrap.addEventListener(ev, e => e.preventDefault()));
+})();
 
 // ---------- settings ----------
 

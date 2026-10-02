@@ -71,6 +71,56 @@
     return targets.map(t => dist[t]);
   }
 
+  /** Cheapest path between two cells as map-pixel points, smoothed so it reads like a drawn road. */
+  function trace(g, src, dst) {
+    const { w, h, cost } = g;
+    const dist = new Int32Array(w * h).fill(1e9);
+    const prev = new Int32Array(w * h).fill(-1);
+    const ring = Array.from({ length: RING }, () => []);
+    dist[src] = 0;
+    ring[0].push(src);
+    let pending = 1, found = src === dst;
+    for (let d = 0; pending > 0 && !found; d++) {
+      const bucket = ring[d % RING];
+      while (bucket.length) {
+        const c = bucket.pop();
+        pending--;
+        if (dist[c] !== d) continue;
+        if (c === dst) { found = true; break; }
+        const x = c % w, y = (c - x) / w;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const n = ny * w + nx, step = cost[n];
+          if (!step) continue;
+          const nd = d + (dx && dy ? step + (step >> 1) : step);
+          if (nd < dist[n]) { dist[n] = nd; prev[n] = c; ring[nd % RING].push(n); pending++; }
+        }
+      }
+    }
+    if (!found) return null;
+    let pts = [];
+    for (let c = dst; c !== -1; c = prev[c]) pts.push([(c % w + 0.5) * g.cell, (Math.floor(c / w) + 0.5) * g.cell]);
+    pts.reverse();
+    // grid paths are staircases: average neighbours to round them off, keeping the ends fixed
+    for (let pass = 0; pass < 3; pass++) {
+      pts = pts.map((p, i) => {
+        if (i === 0 || i === pts.length - 1) return p;
+        const a = pts[Math.max(0, i - 2)], b = pts[i - 1], c = pts[i + 1], e = pts[Math.min(pts.length - 1, i + 2)];
+        return [(a[0] + b[0] + p[0] + c[0] + e[0]) / 5, (a[1] + b[1] + p[1] + c[1] + e[1]) / 5];
+      });
+    }
+    return pts.filter((p, i) => i % 2 === 0 || i === pts.length - 1);
+  }
+
+  /** Road path between two map-pixel points, ending exactly on them. Flat [x, y, x, y, ...], rounded. */
+  async function path(from, to, cell) {
+    const g = await loadGrid(cell);
+    const mid = trace(g, cellOf(g, from), cellOf(g, to)) || [];
+    return [from].concat(mid.slice(1, -1), [to]).reduce((flat, p) => { flat.push(Math.round(p[0]), Math.round(p[1])); return flat; }, []);
+  }
+
   /** Visiting order for points[1..], starting at points[0]; D is the cost matrix. */
   function order(D) {
     const n = D.length;
@@ -110,17 +160,22 @@
     return path.slice(1).map(i => i - 1);
   }
 
-  /** points: map-pixel [x, y] of each lot. start: map-pixel start point. Returns indexes into points, in visiting order. */
+  /** points: map-pixel [x, y] of each lot. start: map-pixel start point. Returns { order: indexes into points in visiting order, paths: road path leading to each stop }. */
   async function plan(points, start, cell) {
     const g = await loadGrid(cell);
     const cells = [start].concat(points).map(p => cellOf(g, p));
     const all = [start].concat(points);
     const D = cells.map((c, i) => travelFrom(g, c, cells).map((d, j) => d < 1e9 ? d : Math.hypot(all[i][0] - all[j][0], all[i][1] - all[j][1]) / cell * OFFROAD * 3));
     for (let i = 0; i < D.length; i++) for (let j = i + 1; j < D.length; j++) D[i][j] = D[j][i] = (D[i][j] + D[j][i]) / 2;
-    return order(D);
+    const seq = order(D);
+    // the drive from each stop to the next, along the roads
+    const paths = [];
+    let here = start;
+    for (const i of seq) { paths.push(await path(here, points[i], cell)); here = points[i]; }
+    return { order: seq, paths: paths };
   }
 
-  const api = { plan: plan, order: order, travelFrom: travelFrom, cellOf: cellOf };
+  const api = { plan: plan, path: path, trace: trace, order: order, travelFrom: travelFrom, cellOf: cellOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Route = api;
 })(typeof window !== 'undefined' ? window : globalThis);
