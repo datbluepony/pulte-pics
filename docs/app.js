@@ -516,6 +516,9 @@ function renderLot() {
   $('#lot-find').classList.toggle('hide', lotStep !== 'find');
   $('#lot-shoot').classList.toggle('hide', lotStep !== 'shoot');
   if (lotStep === 'find') { renderFind(); return; }
+  // a submitted lot keeps its note in sync if you change it, but the button says it is already in
+  $('#btn-done').textContent = (l.done ? 'Already submitted ✓ ' : 'Submit ') + (run.order.some(n => n !== l.lot && !lotOf(n).done) ? '→ next lot' : '→ back to route');
+  $('#btn-done').className = l.done ? '' : 'good';
   const photos = l.photos || [];
   $('#lot-photos-sum').textContent = !l.count ? 'No photos yet.'
     : l.sent === l.count ? 'All ' + l.count + ' photos are in Google Drive.'
@@ -581,7 +584,7 @@ $('#btn-back').addEventListener('click', () => { renderRoute(); show('run'); });
 
 $('#btn-done').addEventListener('click', async () => {
   const l = lotOf(currentLot);
-  if (!l.count && !confirm('No photos on this lot yet. Mark it done anyway?')) return;
+  if (!l.done && !l.count && !confirm('No photos on this lot yet. Mark it done anyway?')) return;
   l.done = true;
   await queuePut({ id: run.date + '/' + l.lot + '/note', type: 'note', t: Date.now(), community: run.community, date: run.date, agent: l.agent, lot: l.lot, stage: (STAGES.find(s => s.id === l.stage) || {}).label || '', note: stageNote(l) });
   if (l.stage) { history[l.lot] = { date: run.date, stage: l.stage }; store.set('history', history); }
