@@ -10,7 +10,7 @@
  */
 
 const ROOT_NAME = 'Pulte Pics';
-const DEFAULT_EXPIRE_DAYS = 11; // about 1.5 weeks
+const DEFAULT_EXPIRE_DAYS = 13;
 const PROPS = PropertiesService.getScriptProperties();
 
 /** Run once from the editor. Authorizes the script, prints the owner token, installs cleanup. */
@@ -57,6 +57,7 @@ function route_(req) {
   switch (req.action) {
     case 'ping': return config_();
     case 'saveAgents': return saveAgents_(req);
+    case 'plan': return plan_(req);
     case 'upload': return upload_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
@@ -82,7 +83,8 @@ function teamKey_() {
 
 function config_() {
   return {
-    version: 2,
+    version: 3,
+    nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
     agents: agents_(),
     expireDays: Number(PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS),
@@ -102,7 +104,34 @@ function saveAgents_(req) {
   });
   PROPS.setProperty('AGENTS', JSON.stringify(agents));
   if (req.expireDays) PROPS.setProperty('EXPIRE_DAYS', String(Math.max(1, Number(req.expireDays))));
+  if ('nextRun' in req) PROPS.setProperty('NEXT_RUN', String(req.nextRun || ''));
   return config_();
+}
+
+// ---------- run plans ----------
+
+/** The lot list of each recent run, from the map: { date: { community, lots: [[lot, agent]], done } }. */
+function plans_() {
+  try { return JSON.parse(PROPS.getProperty('PLANS') || '{}'); } catch (err) { return {}; }
+}
+
+function savePlans_(plans) {
+  // keep the five newest runs so the property stays small
+  const keep = {};
+  Object.keys(plans).sort().slice(-5).forEach(d => { keep[d] = plans[d]; });
+  PROPS.setProperty('PLANS', JSON.stringify(keep));
+}
+
+/** The photographer built a route: remember every lot in it, so the team page knows the full list before photos exist. */
+function plan_(req) {
+  const plans = plans_();
+  plans[req.date] = {
+    community: req.community,
+    lots: (req.lots || []).map(l => [String(l.lot), String(l.agent)]),
+    done: !!(plans[req.date] && plans[req.date].done),
+  };
+  savePlans_(plans);
+  return {};
 }
 
 // ---------- Drive folders ----------
@@ -296,17 +325,35 @@ function teamView_(req) {
     }
   }
   runs.sort((x, y) => x.date < y.date ? 1 : -1);
-  const run = runs.filter(r => r.date === req.date)[0] || runs[0];
+  const plans = plans_();
+  // a run with a lot list is in progress until the agents have been told it is complete
+  runs.forEach(r => { r.inProgress = !!(plans[r.date] && !plans[r.date].done); });
+  // by default show the last finished run; an unfinished one only when asked for or when it is all there is
+  const run = runs.filter(r => r.date === req.date)[0] || runs.filter(r => !r.inProgress)[0] || runs[0];
+  const planned = run && plans[run.date] ? plans[run.date].lots : [];
+  let shot = 0;
+  const agents = !run ? [] : agents_().map(a => {
+    const f = child_(run.folder, a.name, false);
+    const lots = f ? lots_(f) : [];
+    shot += lots.filter(l => l.files.length).length;
+    // lots on the map that have no photos yet
+    planned.filter(p => p[1] === a.name && !lots.some(l => l.lot === p[0])).forEach(p => {
+      lots.push({ lot: p[0], stage: '', note: '', sent: false, folderUrl: '', files: [], pending: true });
+    });
+    lots.sort((x, y) => Number(x.lot) - Number(y.lot));
+    return { name: a.name, color: a.color, folderUrl: f ? f.getUrl() : '', lots: lots };
+  });
   return {
     expireDays: Number(PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS),
-    runs: runs.map(r => ({ community: r.community, date: r.date })),
+    nextRun: PROPS.getProperty('NEXT_RUN') || '',
+    runs: runs.map(r => ({ community: r.community, date: r.date, inProgress: r.inProgress })),
     run: run ? {
       community: run.community,
       date: run.date,
-      agents: agents_().map(a => {
-        const f = child_(run.folder, a.name, false);
-        return { name: a.name, color: a.color, folderUrl: f ? f.getUrl() : '', lots: f ? lots_(f) : [] };
-      }),
+      inProgress: run.inProgress,
+      planned: planned.length,
+      shot: shot,
+      agents: agents,
     } : null,
   };
 }
@@ -348,6 +395,8 @@ function zip_(req) {
 /** Tell each agent with lots in this run that the photos are done, with the team link. */
 function notify_(req) {
   const sent = [], skipped = [];
+  const plans = plans_();
+  if (plans[req.date]) { plans[req.date].done = true; savePlans_(plans); }
   const link = req.portal + '?u=' + encodeURIComponent(req.backend) + '&k=' + teamKey_();
   const days = PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS;
   agents_().forEach(agent => {

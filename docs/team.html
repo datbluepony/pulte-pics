@@ -18,6 +18,10 @@ a { color: inherit; }
 .hero .meta { opacity: .88; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 .hero select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.12); color: #fff; }
 .hero select option { color: #14202b; }
+.hero .next { margin-top: 14px; display: inline-flex; gap: 10px; align-items: baseline; background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.28); border-radius: 12px; padding: 9px 15px; }
+.hero .next b { font-size: 22px; }
+.banner { padding: 14px 18px; margin-bottom: 16px; border-left: 6px solid #f0b429; }
+.lot.pending { background: #fafbfc; border-style: dashed; }
 main { margin-top: -46px; padding: 0 24px 60px; }
 .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 10px rgba(11,60,93,.06); }
 h2 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 30px 0 12px; }
@@ -86,12 +90,14 @@ label.tick input { width: 18px; height: 18px; accent-color: var(--good); }
     <label>Photo run <select id="date"></select></label>
     <span id="expires"></span>
   </div>
+  <div class="next hide" id="next"></div>
 </div></div>
 
 <main><div class="wrap">
   <div id="msg" class="card" style="padding:18px">Loading the latest photos...</div>
 
   <!-- landing: click your name -->
+  <div id="banner" class="card banner hide"></div>
   <section id="home" class="hide">
     <div class="people" id="people"></div>
     <p class="muted" style="margin-top:14px">Ranked by homes in this photo run. The green bar fills as you mark updates sent to your customers.</p>
@@ -151,13 +157,26 @@ async function load(date) {
     $('#msg').classList.add('hide');
     if (!view.run) { $('#community').textContent = 'Update Photos'; $('#msg').classList.remove('hide'); $('#msg').textContent = 'No photos yet. They appear here as they are taken.'; return; }
     $('#community').textContent = view.run.community;
-    $('#date').innerHTML = view.runs.map(r => `<option ${r.date === view.run.date ? 'selected' : ''}>${esc(r.date)}</option>`).join('');
+    $('#date').innerHTML = view.runs.map(r => `<option value="${esc(r.date)}" ${r.date === view.run.date ? 'selected' : ''}>${esc(r.date)}${r.inProgress ? ' (in progress)' : ''}</option>`).join('');
+    // countdown to the next photo run
+    const dayOf = d => Math.round((new Date(d + 'T12:00:00').getTime() - new Date(new Date().toDateString()).getTime() - 43200000) / 86400000);
+    const until = view.nextRun ? dayOf(view.nextRun) : -1;
+    $('#next').classList.toggle('hide', until < 0);
+    if (until >= 0) {
+      const nice = new Date(view.nextRun + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+      $('#next').innerHTML = until === 0 ? '<b>Photo run today</b>' : `<b>${until} day${until === 1 ? '' : 's'}</b><span>until the next photo run, ${esc(nice)}</span>`;
+    }
+    const newer = view.runs.find(r => r.inProgress && r.date > view.run.date);
+    $('#banner').classList.toggle('hide', !view.run.inProgress && !newer);
+    $('#banner').textContent = view.run.inProgress
+      ? 'This photo run is in progress: ' + view.run.shot + ' of ' + view.run.planned + ' homes photographed so far. The rest appear as they are taken.'
+      : newer ? 'These are the last completed photos. A new run (' + newer.date + ') is in progress and will show here when it is finished.' : '';
     const left = view.expireDays - Math.floor((Date.now() - new Date(view.run.date + 'T12:00:00').getTime()) / 86400000);
     $('#expires').textContent = left > 0 ? 'Photos are removed in ' + left + ' day' + (left === 1 ? '' : 's') : 'These photos are about to be removed';
     const saved = remember.get();
     if (view.run.agents.some(a => a.name === saved)) open(saved); else home();
   } catch (e) {
-    $('#home').classList.add('hide'); $('#agent').classList.add('hide');
+    $('#home').classList.add('hide'); $('#agent').classList.add('hide'); $('#banner').classList.add('hide');
     $('#msg').textContent = /owner token|Unknown action/.test(e.message) ? 'This page is being set up. Please try again shortly.' : e.message;
   }
 }
@@ -212,6 +231,7 @@ function renderLots() {
   $('#sum').textContent = s.homes + ' homes, ' + s.photos + ' full-resolution photos. ' + s.sent + ' of ' + s.homes + ' marked sent to customers.';
   $('#lots').innerHTML = lots.map(l => {
     const at = STAGES.indexOf(l.stage);
+    if (l.pending) return `<div class="card lot pending"><div class="head"><span class="num">Lot ${esc(l.lot)}</span><span class="muted">Photos coming</span></div></div>`;
     return `<div class="card lot ${l.sent ? 'sent' : ''}" data-lot="${esc(l.lot)}">
       <div class="head">
         <span class="num">Lot ${esc(l.lot)}</span>

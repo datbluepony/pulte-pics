@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 11; // bump with docs/version.txt on every release
+const VERSION = 12; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;      // closer than this counts as being at the lot
@@ -28,7 +28,9 @@ const STAGES = [
   { id: 'complete', label: 'Complete', text: 'The home looks complete from the outside.' },
 ];
 
-let settings = store.get('settings', { url: '', token: '', expireDays: 11 });
+let settings = store.get('settings', { url: '', token: '', expireDays: 13 });
+if (!settings.nextRun) { settings.nextRun = '2026-10-11'; store.set('settings', settings); } // first countdown; rolls forward two weeks after each run
+if (!settings.days13) { settings.expireDays = 13; settings.days13 = true; store.set('settings', settings); } // one-time move from 11 to 13 days
 let agents = store.get('agents', [
   { name: 'Justin', color: '#46b1e1', email: '' },
   { name: 'Gita', color: '#f2cfee', email: '' },
@@ -155,6 +157,7 @@ async function pump() {
           saveRun();
           try {
             const out = await notifyAgents();
+            rollNextRun();
             setStatus('Everything is sent. Emailed: ' + (out.sent.join(', ') || 'nobody') + '.');
           } catch (e) {
             run.notified = false;
@@ -167,7 +170,7 @@ async function pump() {
       if (!navigator.onLine) { setStatus('Offline. ' + photos + ' photos waiting.', 'err'); break; }
       keepAwake(true);
       const it = items[0];
-      setStatus('Sending lot ' + it.lot + '. ' + photos + ' photos left. Keep this screen open.', 'busy');
+      setStatus(it.type === 'plan' ? 'Sending the lot list...' : 'Sending lot ' + it.lot + '. ' + photos + ' photos left. Keep this screen open.', 'busy');
       try {
         if (it.type === 'photo') {
           const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.buf ? new Blob([it.buf]) : it.blob) });
@@ -179,6 +182,8 @@ async function pump() {
             if (photo) photo.id = up.id;
             saveRun(); renderRoute(); renderLot();
           }
+        } else if (it.type === 'plan') {
+          await api('plan', { community: it.community, date: it.date, lots: it.lots });
         } else {
           await api('note', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, stage: it.stage, note: it.note });
         }
@@ -387,6 +392,9 @@ async function planRoute(fromHere) {
   run.phase = 'route';
   saveRun();
   renderRun();
+  // the agents' page needs the whole lot list, not just the lots already photographed
+  await queuePut({ id: run.date + '/plan', type: 'plan', t: Date.now(), lot: 'list', community: run.community, date: run.date, lots: run.lots.map(l => ({ lot: l.lot, agent: l.agent })) });
+  pump();
 }
 
 $('#btn-route').addEventListener('click', async () => {
@@ -433,6 +441,16 @@ $('#route-list').addEventListener('click', e => {
   if (row) openLot(Number(row.dataset.lot));
 });
 
+/** Once a run is finished, the next one defaults to two weeks later unless a later date is already set. */
+function rollNextRun() {
+  if (settings.nextRun && settings.nextRun > run.date) return;
+  const d = new Date(run.date + 'T12:00:00');
+  d.setDate(d.getDate() + 14);
+  settings.nextRun = d.toISOString().slice(0, 10);
+  store.set('settings', settings);
+  syncConfig();
+}
+
 const notifyAgents = () => api('notify', { community: run.community, date: run.date, portal: new URL('team.html', location.href).href, backend: settings.url });
 
 $('#btn-notify').addEventListener('click', async () => {
@@ -441,6 +459,7 @@ $('#btn-notify').addEventListener('click', async () => {
   if (!waiting && !confirm('Email each agent the link to their photos now?')) return;
   try {
     const out = await notifyAgents();
+    rollNextRun();
     run.notified = true;
     saveRun();
     alert('Emailed: ' + (out.sent.join(', ') || 'nobody') + (out.skipped.length ? '\nSkipped: ' + out.skipped.join(', ') : ''));
@@ -845,6 +864,7 @@ function renderSettings() {
   $('#set-url').value = settings.url;
   $('#set-token').value = settings.token;
   $('#set-expire').value = settings.expireDays;
+  $('#set-next').value = settings.nextRun || '';
   $('#agent-list').innerHTML = agents.map((a, i) => `
     <div class="card">
       <div class="row">
@@ -864,7 +884,7 @@ function renderSettings() {
     ].map(esc).join('<br>');
   });
   $('#portal-links').innerHTML = !settings.url ? ''
-    : settings.teamKey ? '<h2>Team link</h2><p class="muted">One page for all the agents. They click their own name to see their lots. This is the link in the "photos are complete" email.</p>' +
+    : settings.teamKey && settings.backend >= 3 ? '<h2>Team link</h2><p class="muted">One page for all the agents. They click their own name to see their lots. This is the link in the "photos are complete" email.</p>' +
       `<div class="card row"><span class="grow"><b>Agents' page</b></span><button class="small" data-link="${esc(teamLink())}">Copy link</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
     : '<div class="card flag">The Google script needs updating before the agents\' page works: paste the new Code.gs, then Deploy, Manage deployments, Edit, New version. Then press Save and connect again.</div>';
 }
@@ -886,18 +906,24 @@ $('#portal-links').addEventListener('click', async e => {
   e.target.textContent = 'Copied';
 });
 
+/** Push agents, expiry and the next run date to Google, and learn the team link and script version. */
+async function syncConfig() {
+  const out = await api('saveAgents', { agents: agents, expireDays: settings.expireDays, nextRun: settings.nextRun || '' });
+  agents = out.agents;
+  store.set('agents', agents);
+  settings.teamKey = out.teamKey || '';
+  settings.backend = out.version || 1;
+  store.set('settings', settings);
+}
+
 $('#btn-save').addEventListener('click', async () => {
-  settings = { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 11, teamKey: settings.teamKey || '' };
+  settings = Object.assign(settings, { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 13, nextRun: $('#set-next').value || '' });
   store.set('settings', settings);
   store.set('agents', agents);
   const msg = $('#set-msg');
   msg.textContent = 'Connecting...';
   try {
-    const out = await api('saveAgents', { agents: agents, expireDays: settings.expireDays });
-    agents = out.agents;
-    store.set('agents', agents);
-    settings.teamKey = out.teamKey || '';
-    store.set('settings', settings);
+    await syncConfig();
     msg.textContent = 'Connected.';
     setStatus('Connected.');
     renderSettings();
@@ -928,7 +954,7 @@ fetch('lots.json').then(r => r.json()).then(async m => {
   master = m;
   await reconcile();
   renderRun();
-  if (settings.url) { setStatus('Connected.'); pump(); }
+  if (settings.url) { setStatus('Connected.'); pump(); syncConfig().catch(() => {}); }
   else show('settings');
   if (run && run.phase === 'route') startGps();
 });
