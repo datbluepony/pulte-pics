@@ -2,8 +2,8 @@
  * Pulte Pic System - Google Apps Script backend.
  *
  * Runs in the photographer's Google account. Stores full-resolution photos in
- * Drive (Pulte Pics / community / date / agent / Lot N), reads starred lot maps
- * with Claude, emails agents, and deletes old runs.
+ * Drive (Pulte Pics / community / date / agent / Lot N), emails agents, and
+ * deletes old runs. Uses only free Google services.
  *
  * One-time setup: paste this file into script.google.com, run setup(), then
  * Deploy > New deployment > Web app (Execute as: Me, Access: Anyone).
@@ -26,9 +26,6 @@ function setup() {
   ScriptApp.newTrigger('cleanup').timeBased().everyDays(1).atHour(3).create();
   MailApp.getRemainingDailyQuota(); // forces the email permission prompt now
   Logger.log('Owner token (paste into the app Settings): ' + PROPS.getProperty('OWNER_TOKEN'));
-  Logger.log(PROPS.getProperty('ANTHROPIC_API_KEY')
-    ? 'Claude API key is set.'
-    : 'No ANTHROPIC_API_KEY script property yet - map reading is off until you add one.');
 }
 
 function doGet() {
@@ -53,7 +50,6 @@ function route_(req) {
   switch (req.action) {
     case 'ping': return config_();
     case 'saveAgents': return saveAgents_(req);
-    case 'parseMap': return parseMap_(req);
     case 'upload': return upload_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
@@ -71,7 +67,6 @@ function config_() {
   return {
     agents: agents_(),
     expireDays: Number(PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS),
-    mapReader: !!PROPS.getProperty('ANTHROPIC_API_KEY'),
   };
 }
 
@@ -271,78 +266,4 @@ function cleanup() {
       if (m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) < cutoff) d.setTrashed(true);
     }
   }
-}
-
-// ---------- map reading ----------
-
-const MAP_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['lots'],
-  properties: {
-    lots: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['lot', 'agent', 'starColor', 'confident', 'alternates', 'note'],
-        properties: {
-          lot: { type: 'integer', description: 'Lot number the star marks.' },
-          agent: { type: 'string', description: 'Agent name from the legend, or empty if the star colour has no legend entry.' },
-          starColor: { type: 'string' },
-          confident: { type: 'boolean', description: 'False when the star sits between lots or the label is hard to read.' },
-          alternates: { type: 'array', items: { type: 'integer' }, description: 'Other lot numbers the star could plausibly mark.' },
-          note: { type: 'string', description: 'Short reason when not confident, otherwise empty.' },
-        },
-      },
-    },
-  },
-};
-
-function parseMap_(req) {
-  const apiKey = PROPS.getProperty('ANTHROPIC_API_KEY');
-  if (!apiKey) throw new Error('Map reading is off: add an ANTHROPIC_API_KEY script property, or add lots by hand.');
-  const content = (req.files || []).map(f => f.mime === 'application/pdf'
-    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: f.data } }
-    : { type: 'image', source: { type: 'base64', media_type: f.mime, data: f.data } });
-  if (!content.length) throw new Error('No map file received.');
-  content.push({
-    type: 'text',
-    text:
-      'These are cropped pages of a new-home community site map. A real estate photographer uses it as a shot list: ' +
-      'each small coloured star marks one lot that needs update photos, and the star colour says which sales agent the lot belongs to. ' +
-      'A legend on the map pairs each star colour with an agent name. The agents on file are: ' +
-      (req.agents || []).join(', ') + '. Use exactly one of those names when the legend matches, and leave agent empty when a star colour is not in the legend.\n\n' +
-      'List every star on every page exactly once. Lot numbers run from 1 to ' + (req.maxLot || 2400) + ' and neighbouring lots are numbered in sequence, ' +
-      'so use the neighbours to work out a label a star is covering. A star usually sits on the street-facing edge of its lot, sometimes right on a lot line; ' +
-      'when it could belong to either neighbour, pick the likelier lot, set confident to false and put the other in alternates. ' +
-      'The same area can appear on more than one page, so report a lot once. Ignore the stars in the legend itself. ' +
-      'A star drawn outside the map image should be reported with your best guess at the lot it was meant for and confident false. ' +
-      'The lot colours (orange, magenta, blue, grey) are product collections and have nothing to do with the agents.',
-  });
-  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'server-side-fallback-2026-07-01',
-    },
-    payload: JSON.stringify({
-      model: 'claude-opus-5-5',
-      max_tokens: 16000,
-      fallbacks: 'default',
-      output_config: { effort: 'high', format: { type: 'json_schema', schema: MAP_SCHEMA } },
-      messages: [{ role: 'user', content: content }],
-    }),
-    muteHttpExceptions: true,
-  });
-  const body = JSON.parse(res.getContentText());
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Map reader error: ' + (body.error && body.error.message || res.getResponseCode()));
-  }
-  if (body.stop_reason === 'refusal') throw new Error('The map reader declined this file. Add the lots by hand.');
-  if (body.stop_reason === 'max_tokens') throw new Error('The map has too many stars to read in one go. Upload fewer pages at a time.');
-  const text = body.content.filter(b => b.type === 'text').map(b => b.text).join('');
-  return { lots: JSON.parse(text).lots };
 }

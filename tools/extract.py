@@ -103,3 +103,47 @@ data = {
 with open(out + r'\lots.json', 'w') as f:
     json.dump(data, f, separators=(',', ':'))
 
+
+# ---- travel-cost grid for routing: roads are cheap, lots and grass are slow, water is blocked ----
+import io
+import numpy as np
+from PIL import Image
+from scipy import ndimage
+
+Image.MAX_IMAGE_PIXELS = None
+GRID = 4  # map image pixels per grid cell
+big = max(page.get_images(full=True), key=lambda i: i[2] * i[3])
+rect = page.get_image_rects(big[0])[0]
+raw = np.asarray(Image.open(io.BytesIO(doc.extract_image(big[0])['image'])).convert('RGB')).astype(np.int16)
+r, g, b = raw[..., 0], raw[..., 1], raw[..., 2]
+mx, mn = raw.max(2), raw.min(2)
+# streets are large connected light-grey areas; grey lots are small ones fenced by outlines
+grey = (mx - mn < 14) & (mx > 150) & (mx < 225)
+lab, n = ndimage.label(grey)
+sizes = ndimage.sum(grey, lab, index=np.arange(1, n + 1))
+road = np.isin(lab, np.where(sizes > 6000)[0] + 1)
+water = (g > r + 30) & (b > g + 25)  # lakes are cyan-blue; the blue lots are violet-blue
+
+gw, gh = pix.width // GRID, pix.height // GRID
+gx = (np.arange(gw) + 0.5) * GRID / scale + clip.x0   # grid cell centre in page points
+gy = (np.arange(gh) + 0.5) * GRID / scale + clip.y0
+px_per_pt = raw.shape[1] / rect.width
+cell = int(round(GRID / scale * px_per_pt))           # raw pixels per grid cell
+ix = np.round((gx - rect.x0) * px_per_pt).astype(int)
+iy = np.round((gy - rect.y0) * px_per_pt).astype(int)
+
+def pooled(mask, frac):
+    # share of raw pixels set inside each grid cell
+    box = ndimage.uniform_filter(mask.astype(np.float32), size=cell)
+    return box[np.clip(iy, 0, mask.shape[0] - 1)][:, np.clip(ix, 0, mask.shape[1] - 1)] > frac
+
+road_g = ndimage.binary_dilation(pooled(road, 0.15), iterations=1)
+water_g = pooled(water, 0.6) & ~road_g
+grid = np.full((gh, gw), 128, np.uint8)
+grid[water_g] = 0
+grid[road_g] = 255
+Image.fromarray(grid).save(out + r'\roads.png', optimize=True)
+print('grid', gw, gh, 'road cells', int(road_g.sum()), 'water cells', int(water_g.sum()))
+data['grid'] = {'w': gw, 'h': gh, 'cell': GRID}
+with open(out + r'\lots.json', 'w') as f:
+    json.dump(data, f, separators=(',', ':'))

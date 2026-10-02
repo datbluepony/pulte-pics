@@ -26,8 +26,8 @@
       <div class="card">
         <label for="run-date">Date</label>
         <input type="date" id="run-date">
-        <label for="map-file">Agents' starred map (PDF or screenshots)</label>
-        <input type="file" id="map-file" accept="application/pdf,image/*" multiple>
+        <label for="map-file">Agents' starred map (PDF)</label>
+        <input type="file" id="map-file" accept="application/pdf">
         <div class="stack">
           <button class="primary" id="btn-read">Read the map</button>
           <button id="btn-manual">Skip the map and add lots by hand</button>
@@ -39,6 +39,7 @@
     <div id="run-review" class="hide">
       <h2>Check the lots</h2>
       <p class="muted" id="review-sum"></p>
+      <div id="review-warn"></div>
       <div id="review-list"></div>
       <div class="stack">
         <button id="btn-add">Add a lot</button>
@@ -50,16 +51,18 @@
     <div id="run-route" class="hide">
       <h2 id="route-title">Route</h2>
       <p class="muted" id="route-sum"></p>
+      <div class="stack"><button class="primary" id="btn-go">Go to next lot</button></div>
       <div id="route-list"></div>
       <div class="stack">
         <button class="primary" id="btn-notify">Email agents their link</button>
+        <button id="btn-reroute">Re-plan the rest from where I am</button>
         <button id="btn-edit">Edit the lot list</button>
         <button id="btn-new">Finish and start a new run</button>
       </div>
     </div>
   </section>
 
-  <!-- One lot -->
+  <!-- One lot: find it, then shoot it -->
   <section id="view-lot" class="hide">
     <button class="small" id="btn-back">&larr; Route</button>
     <div class="agent-band card" id="lot-band">
@@ -69,21 +72,42 @@
       </div>
       <div id="lot-count" style="text-align:right"></div>
     </div>
-    <div class="row">
-      <label class="btn primary grow" style="margin:0;color:#fff;font-size:16px">Take photo
-        <input type="file" id="cam" accept="image/*" capture="environment" class="hide">
-      </label>
-      <label class="btn grow" style="margin:0;color:inherit;font-size:16px">Add from library
-        <input type="file" id="lib" accept="image/*" multiple class="hide">
-      </label>
+
+    <div id="lot-find">
+      <div class="card compass">
+        <svg id="arrow" viewBox="0 0 100 100" width="120" height="120" aria-hidden="true">
+          <circle cx="50" cy="50" r="47" fill="#fff" stroke="#14202b" stroke-width="3"/>
+          <path d="M50 10 L72 68 L50 56 L28 68 Z" fill="#0b3c5d"/>
+        </svg>
+        <div class="grow">
+          <div id="find-dist" class="dist">Finding you...</div>
+          <div id="find-hint" class="muted"></div>
+          <button class="small" id="btn-compass" style="margin-top:6px">Turn on compass</button>
+        </div>
+      </div>
+      <div id="mini"><div id="mini-target"></div><div id="mini-me" class="hide"></div></div>
+      <div class="stack">
+        <button class="good" id="btn-here">I'm here: take photos</button>
+        <button id="btn-skip-find">Skip the camera, go to notes</button>
+      </div>
     </div>
-    <h2>Stage</h2>
-    <div class="chips" id="stage-chips"></div>
-    <label for="lot-extra">Anything to add (optional)</label>
-    <textarea id="lot-extra" rows="2"></textarea>
-    <div class="card muted" id="lot-preview"></div>
-    <div class="stack">
-      <button class="good" id="btn-done">Done &rarr; next lot</button>
+
+    <div id="lot-shoot" class="hide">
+      <div class="row">
+        <button class="primary grow" id="btn-cam">Take photos</button>
+        <label class="btn grow" style="margin:0;color:inherit;font-size:16px">Add from library
+          <input type="file" id="lib" accept="image/*" multiple class="hide">
+        </label>
+      </div>
+      <h2>Stage</h2>
+      <div class="chips" id="stage-chips"></div>
+      <label for="lot-extra">Anything to add (optional)</label>
+      <textarea id="lot-extra" rows="2"></textarea>
+      <div class="card muted" id="lot-preview"></div>
+      <div class="stack">
+        <button class="good" id="btn-done">Submit &rarr; next lot</button>
+        <button id="btn-refind">Back to finding this lot</button>
+      </div>
     </div>
   </section>
 
@@ -120,6 +144,18 @@
   </section>
 </main>
 
+<!-- Rapid camera: every tap of the shutter saves a photo, no confirm step -->
+<div id="camera" class="hide">
+  <video id="cam-video" playsinline autoplay muted></video>
+  <div id="cam-flash"></div>
+  <div id="cam-top"></div>
+  <div id="cam-bar">
+    <span id="cam-count">0</span>
+    <button id="cam-shutter" aria-label="Take a photo"></button>
+    <button id="cam-close">Done</button>
+  </div>
+</div>
+
 <nav>
   <div id="status">Not connected yet. Open Settings.</div>
   <div class="tabs">
@@ -129,6 +165,8 @@
   </div>
 </nav>
 
+<script src="route.js"></script>
+<script src="mapread.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
