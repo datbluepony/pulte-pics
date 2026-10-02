@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 10; // bump with docs/version.txt on every release
+const VERSION = 11; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;      // closer than this counts as being at the lot
@@ -433,7 +433,7 @@ $('#route-list').addEventListener('click', e => {
   if (row) openLot(Number(row.dataset.lot));
 });
 
-const notifyAgents = () => api('notify', { community: run.community, date: run.date, portal: new URL('agent.html', location.href).href, backend: settings.url });
+const notifyAgents = () => api('notify', { community: run.community, date: run.date, portal: new URL('team.html', location.href).href, backend: settings.url });
 
 $('#btn-notify').addEventListener('click', async () => {
   const waiting = (await queueAll()).length;
@@ -863,10 +863,12 @@ function renderSettings() {
       'Last problem: ' + (delivery.lastError || 'none'),
     ].map(esc).join('<br>');
   });
-  $('#portal-links').innerHTML = agents.filter(a => a.key).length ? '<h2>Agent links</h2><p class="muted">Each link shows only that agent\'s lots. It stays the same every run, so they can bookmark it.</p>' +
-    agents.filter(a => a.key).map(a => `<div class="card row"><span class="grow"><b>${esc(a.name)}</b></span><button class="small" data-link="${esc(portalLink(a))}">Copy link</button></div>`).join('') : '';
+  $('#portal-links').innerHTML = !settings.url ? ''
+    : settings.teamKey ? '<h2>Team link</h2><p class="muted">One page for all the agents. They click their own name to see their lots. This is the link in the "photos are complete" email.</p>' +
+      `<div class="card row"><span class="grow"><b>Agents' page</b></span><button class="small" data-link="${esc(teamLink())}">Copy link</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
+    : '<div class="card flag">The Google script needs updating before the agents\' page works: paste the new Code.gs, then Deploy, Manage deployments, Edit, New version. Then press Save and connect again.</div>';
 }
-const portalLink = a => new URL('agent.html', location.href).href + '?u=' + encodeURIComponent(settings.url) + '&k=' + a.key;
+const teamLink = () => new URL('team.html', location.href).href + '?u=' + encodeURIComponent(settings.url) + '&k=' + settings.teamKey;
 
 $('#agent-list').addEventListener('change', e => {
   const i = e.target.dataset.i, f = e.target.dataset.f;
@@ -885,7 +887,7 @@ $('#portal-links').addEventListener('click', async e => {
 });
 
 $('#btn-save').addEventListener('click', async () => {
-  settings = { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 11 };
+  settings = { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 11, teamKey: settings.teamKey || '' };
   store.set('settings', settings);
   store.set('agents', agents);
   const msg = $('#set-msg');
@@ -894,6 +896,8 @@ $('#btn-save').addEventListener('click', async () => {
     const out = await api('saveAgents', { agents: agents, expireDays: settings.expireDays });
     agents = out.agents;
     store.set('agents', agents);
+    settings.teamKey = out.teamKey || '';
+    store.set('settings', settings);
     msg.textContent = 'Connected.';
     setStatus('Connected.');
     renderSettings();

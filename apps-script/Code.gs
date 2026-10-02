@@ -46,6 +46,13 @@ function doPost(e) {
 
 function route_(req) {
   if (req.action === 'agentView') return agentView_(req);
+  // the team page: anyone holding the team link
+  if (['teamView', 'markSent', 'zip'].indexOf(req.action) >= 0) {
+    if (!req.key || req.key !== teamKey_()) throw new Error('This link is not valid. Ask your photographer for the current one.');
+    if (req.action === 'teamView') return teamView_(req);
+    if (req.action === 'markSent') return markSent_(req);
+    return zip_(req);
+  }
   if (!req.token || req.token !== PROPS.getProperty('OWNER_TOKEN')) throw new Error('Wrong owner token.');
   switch (req.action) {
     case 'ping': return config_();
@@ -63,8 +70,20 @@ function agents_() {
   return JSON.parse(PROPS.getProperty('AGENTS') || '[]');
 }
 
+/** Key in the one link the whole team shares. */
+function teamKey_() {
+  let key = PROPS.getProperty('TEAM_KEY');
+  if (!key) {
+    key = Utilities.getUuid().replace(/-/g, '');
+    PROPS.setProperty('TEAM_KEY', key);
+  }
+  return key;
+}
+
 function config_() {
   return {
+    version: 2,
+    teamKey: teamKey_(),
     agents: agents_(),
     expireDays: Number(PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS),
   };
@@ -140,34 +159,78 @@ function lotFolder_(community, date, agent, lot) {
 
 // ---------- photos ----------
 
+/** Per-lot record kept in the folder description: { stage, note, sent, files: [{ id, name }] }. */
+function readMeta_(folder) {
+  try { return JSON.parse(folder.getDescription() || '{}') || {}; } catch (err) { return {}; }
+}
+
+function indexFile_(folder, id, name) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const meta = readMeta_(folder);
+    meta.files = meta.files || [];
+    if (!meta.files.some(f => f.id === id)) meta.files.push({ id: id, name: name });
+    folder.setDescription(JSON.stringify(meta));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** An existing lot folder, or null. Never creates anything. */
+function findLot_(community, date, agent, lot) {
+  let f = child_(rootFolder_(), community, false);
+  ['' + date, '' + agent, 'Lot ' + lot].forEach(name => { f = f && child_(f, name, false); });
+  return f;
+}
+
 function upload_(req) {
   const folder = lotFolder_(req.community, req.date, req.agent, req.lot);
   const existing = folder.getFilesByName(req.name);
-  if (existing.hasNext()) return { id: existing.next().getId(), duplicate: true };
+  if (existing.hasNext()) {
+    const id = existing.next().getId();
+    indexFile_(folder, id, req.name);
+    return { id: id, duplicate: true };
+  }
   const blob = Utilities.newBlob(Utilities.base64Decode(req.data), req.mime || 'image/jpeg', req.name);
-  return { id: folder.createFile(blob).getId() };
+  const id = folder.createFile(blob).getId();
+  indexFile_(folder, id, req.name);
+  return { id: id };
 }
 
 function note_(req) {
   const folder = lotFolder_(req.community, req.date, req.agent, req.lot);
-  folder.setDescription(JSON.stringify({ stage: req.stage || '', note: req.note || '' }));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const meta = readMeta_(folder);
+    meta.stage = req.stage || '';
+    meta.note = req.note || '';
+    folder.setDescription(JSON.stringify(meta));
+  } finally {
+    lock.releaseLock();
+  }
   return {};
 }
 
 function lotInfo_(folder) {
-  let meta = {};
-  try { meta = JSON.parse(folder.getDescription() || '{}'); } catch (err) { /* plain-text description */ }
-  const files = [];
-  const it = folder.getFiles();
-  while (it.hasNext()) {
-    const f = it.next();
-    if (!f.isTrashed()) files.push({ id: f.getId(), name: f.getName() });
+  const meta = readMeta_(folder);
+  let files = meta.files;
+  if (!files) {
+    // lots uploaded before the file index existed: list the folder itself
+    files = [];
+    const it = folder.getFiles();
+    while (it.hasNext()) {
+      const f = it.next();
+      if (!f.isTrashed() && String(f.getMimeType()).indexOf('image/') === 0) files.push({ id: f.getId(), name: f.getName() });
+    }
   }
-  files.sort((a, b) => a.name < b.name ? -1 : 1);
+  files = files.slice().sort((x, y) => x.name < y.name ? -1 : 1);
   return {
     lot: folder.getName().replace(/^Lot\s+/, ''),
     stage: meta.stage || '',
     note: meta.note || '',
+    sent: !!meta.sent,
     folderUrl: folder.getUrl(),
     files: files,
   };
@@ -218,29 +281,91 @@ function agentView_(req) {
   };
 }
 
+// ---------- team page ----------
+
+function teamView_(req) {
+  const runs = [];
+  const communities = rootFolder_().getFolders();
+  while (communities.hasNext()) {
+    const c = communities.next();
+    if (c.isTrashed()) continue;
+    const dates = c.getFolders();
+    while (dates.hasNext()) {
+      const d = dates.next();
+      if (!d.isTrashed() && /^\d{4}-\d{2}-\d{2}$/.test(d.getName())) runs.push({ community: c.getName(), date: d.getName(), folder: d });
+    }
+  }
+  runs.sort((x, y) => x.date < y.date ? 1 : -1);
+  const run = runs.filter(r => r.date === req.date)[0] || runs[0];
+  return {
+    expireDays: Number(PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS),
+    runs: runs.map(r => ({ community: r.community, date: r.date })),
+    run: run ? {
+      community: run.community,
+      date: run.date,
+      agents: agents_().map(a => {
+        const f = child_(run.folder, a.name, false);
+        return { name: a.name, color: a.color, folderUrl: f ? f.getUrl() : '', lots: f ? lots_(f) : [] };
+      }),
+    } : null,
+  };
+}
+
+/** An agent ticks a lot once its update has gone to the customer. */
+function markSent_(req) {
+  const folder = findLot_(req.community, req.date, req.agent, req.lot);
+  if (!folder) throw new Error('That lot is no longer here.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const meta = readMeta_(folder);
+    meta.sent = !!req.sent;
+    folder.setDescription(JSON.stringify(meta));
+  } finally {
+    lock.releaseLock();
+  }
+  return { sent: !!req.sent };
+}
+
+/** One zip of a lot's photos, built the first time someone asks for it. */
+function zip_(req) {
+  const folder = findLot_(req.community, req.date, req.agent, req.lot);
+  if (!folder) throw new Error('That lot is no longer here.');
+  const info = lotInfo_(folder);
+  const name = 'Lot ' + info.lot + ' - ' + req.date + ' - ' + info.files.length + ' photos.zip';
+  const made = folder.getFilesByName(name);
+  if (made.hasNext()) return { id: made.next().getId() };
+  try {
+    const blobs = info.files.map(f => DriveApp.getFileById(f.id).getBlob());
+    return { id: folder.createFile(Utilities.zip(blobs, name)).getId() };
+  } catch (err) {
+    throw new Error('These photos are too large to zip here. Use "Open in Drive" and download from there.');
+  }
+}
+
 // ---------- email ----------
 
+/** Tell each agent with lots in this run that the photos are done, with the team link. */
 function notify_(req) {
   const sent = [], skipped = [];
+  const link = req.portal + '?u=' + encodeURIComponent(req.backend) + '&k=' + teamKey_();
+  const days = PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS;
   agents_().forEach(agent => {
     const run = agentRuns_(agent.name).filter(r => r.date === req.date && r.community === req.community)[0];
     const lots = run ? lots_(run.folder).filter(l => l.files.length) : [];
     if (!lots.length) return;
     if (!agent.email) { skipped.push(agent.name + ' (no email on file)'); return; }
-    const link = req.portal + '?u=' + encodeURIComponent(req.backend) + '&k=' + agent.key;
-    const rows = lots.map(l =>
-      '<tr><td style="padding:6px 12px 6px 0;vertical-align:top"><b>Lot ' + esc_(l.lot) + '</b></td>' +
-      '<td style="padding:6px 12px 6px 0;vertical-align:top">' + l.files.length + ' photos</td>' +
-      '<td style="padding:6px 0;vertical-align:top">' + esc_(l.note) + '</td></tr>').join('');
     MailApp.sendEmail({
       to: agent.email,
-      subject: req.community + ' update photos - ' + req.date + ' - ' + lots.length + ' lots',
+      subject: req.community + ' update photos are ready - ' + req.date,
       htmlBody:
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#14202b;max-width:520px">' +
         '<p>Hi ' + esc_(agent.name) + ',</p>' +
-        '<p>Update photos for ' + lots.length + ' of your lots at ' + esc_(req.community) + ' are ready, full resolution, sorted by lot.</p>' +
-        '<p><a href="' + link + '"><b>Open your photos</b></a></p>' +
-        '<table style="border-collapse:collapse;font-size:14px">' + rows + '</table>' +
-        '<p>Photos are removed after ' + (PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS) + ' days, so please download what you need.</p>',
+        '<p>The photo run at ' + esc_(req.community) + ' is complete. Update photos for <b>' + lots.length + ' of your lots</b> are ready.</p>' +
+        '<p style="margin:22px 0"><a href="' + link + '" style="background:#0b3c5d;color:#ffffff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:bold;display:inline-block">Open the updated photos</a></p>' +
+        '<p>On the page, click your name to see your lots.</p>' +
+        '<p style="color:#5d6b78;font-size:13px">Your lots this run: ' + lots.map(l => esc_(l.lot)).join(', ') + '.<br>' +
+        'Photos are removed after ' + days + ' days, so please download what you need.</p></div>',
     });
     sent.push(agent.name + ' (' + lots.length + ' lots)');
   });

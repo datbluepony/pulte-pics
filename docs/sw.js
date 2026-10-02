@@ -1,5 +1,5 @@
 // Network first, cached copy when there is no signal, so the app still opens in the field.
-const CACHE = 'pulte-pics-v10';
+const CACHE = 'pulte-pics-v11';
 const SHELL = ['./', 'index.html', 'app.js', 'route.js', 'mapread.js', 'style.css', 'lots.json', 'roads.png', 'map.jpg', 'icon.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {

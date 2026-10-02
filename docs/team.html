@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Update Photos</title>
+<style>
+:root { --navy: #0b3c5d; --ink: #14202b; --muted: #5d6b78; --line: #dde2e8; --bg: #f3f5f8; --good: #1f8a4c; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+a { color: inherit; }
+.hero { background: linear-gradient(135deg, #072a43, #0b3c5d 55%, #14608f); color: #fff; padding: 34px 24px 70px; }
+.wrap { max-width: 1120px; margin: 0 auto; }
+.hero .eyebrow { letter-spacing: .14em; text-transform: uppercase; font-size: 12px; opacity: .75; }
+.hero h1 { margin: 6px 0 4px; font-size: 34px; line-height: 1.15; }
+.hero .meta { opacity: .88; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.hero select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.12); color: #fff; }
+.hero select option { color: #14202b; }
+main { margin-top: -46px; padding: 0 24px 60px; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 10px rgba(11,60,93,.06); }
+h2 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 30px 0 12px; }
+.muted { color: var(--muted); font-size: 14px; }
+button, .btn { font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 9px; padding: 8px 13px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+button:hover, .btn:hover { border-color: #b9c2cc; }
+button.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+button:disabled { opacity: .55; cursor: default; }
+.hide { display: none !important; }
+
+/* who are you */
+.people { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.person { position: relative; text-align: left; display: block; padding: 20px 20px 18px; border-radius: 14px; border: 1px solid var(--line); background: #fff; box-shadow: 0 2px 10px rgba(11,60,93,.06); transition: transform .12s, box-shadow .12s; overflow: hidden; }
+.person:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(11,60,93,.14); }
+.person::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; background: var(--c); }
+.person .rank { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .08em; }
+.person .name { font-size: 24px; font-weight: 800; margin: 2px 0 10px; }
+.person .big { font-size: 46px; font-weight: 800; line-height: 1; }
+.person .big small { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 6px; }
+.person .lead { position: absolute; top: 14px; right: 14px; background: #fff4cc; color: #7a5a00; border: 1px solid #f0d77a; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; }
+.bar { height: 8px; background: #e8ecf0; border-radius: 99px; overflow: hidden; margin: 14px 0 6px; }
+.bar i { display: block; height: 100%; background: var(--good); border-radius: 99px; transition: width .3s; }
+.person .go { margin-top: 12px; font-weight: 700; color: var(--navy); }
+.stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.stats b { color: var(--ink); }
+
+/* one agent */
+.top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 16px 18px; }
+.top .who { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+.dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.3); display: inline-block; }
+.grow { flex: 1; min-width: 0; }
+.top input { font: inherit; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; width: 150px; }
+.chips { display: flex; gap: 6px; }
+.chips button { border-radius: 99px; font-weight: 500; font-size: 14px; padding: 6px 12px; }
+.chips button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+.lot { padding: 18px; margin-top: 14px; }
+.lot.sent { border-color: #b9dfc8; background: #fbfefc; }
+.lot .head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.lot .num { font-size: 26px; font-weight: 800; }
+.stage { display: flex; gap: 3px; margin: 12px 0 4px; }
+.stage i { flex: 1; height: 7px; border-radius: 4px; background: #e8ecf0; }
+.stage i.on { background: var(--navy); }
+.note { background: #f6f8fa; border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 10px; align-items: flex-start; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.grid button { padding: 0; border: 0; aspect-ratio: 4 / 3; background: #e7ebef; border-radius: 9px; overflow: hidden; display: block; }
+.grid img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+.grid button:hover img { transform: scale(1.04); }
+label.tick { display: inline-flex; gap: 7px; align-items: center; font-weight: 600; cursor: pointer; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+label.tick input { width: 18px; height: 18px; accent-color: var(--good); }
+
+/* photo viewer */
+#viewer { position: fixed; inset: 0; background: rgba(8,14,20,.94); z-index: 50; display: flex; align-items: center; justify-content: center; }
+#viewer img { max-width: 92vw; max-height: 84vh; border-radius: 6px; }
+#viewer .bar2 { position: absolute; left: 0; right: 0; bottom: 16px; display: flex; gap: 10px; justify-content: center; align-items: center; color: #fff; }
+#viewer .nav { position: absolute; top: 50%; transform: translateY(-50%); font-size: 30px; padding: 10px 16px; background: rgba(255,255,255,.12); color: #fff; border-color: transparent; }
+#viewer .prev { left: 14px; } #viewer .next { right: 14px; }
+#viewer .x { position: absolute; top: 14px; right: 14px; background: rgba(255,255,255,.12); color: #fff; border-color: transparent; }
+@media (max-width: 560px) { .hero h1 { font-size: 26px; } main, .hero { padding-left: 16px; padding-right: 16px; } }
+</style>
+</head>
+<body>
+<div class="hero"><div class="wrap">
+  <div class="eyebrow">Construction update photos</div>
+  <h1 id="community">Loading...</h1>
+  <div class="meta">
+    <label>Photo run <select id="date"></select></label>
+    <span id="expires"></span>
+  </div>
+</div></div>
+
+<main><div class="wrap">
+  <div id="msg" class="card" style="padding:18px">Loading the latest photos...</div>
+
+  <!-- landing: click your name -->
+  <section id="home" class="hide">
+    <div class="people" id="people"></div>
+    <p class="muted" style="margin-top:14px">Ranked by homes in this photo run. The green bar fills as you mark updates sent to your customers.</p>
+  </section>
+
+  <!-- one agent's lots -->
+  <section id="agent" class="hide">
+    <div class="card top">
+      <button id="back">&larr; Everyone</button>
+      <div class="who grow"><span class="dot" id="who-dot"></span><span id="who"></span></div>
+      <div class="chips" id="filter">
+        <button data-f="all" class="on">All</button><button data-f="todo">Not sent</button><button data-f="done">Sent</button>
+      </div>
+      <input id="find" inputmode="numeric" placeholder="Find a lot">
+      <a class="btn" id="drive" target="_blank" rel="noopener">Open in Drive</a>
+    </div>
+    <p class="muted" id="sum" style="margin:12px 4px 0"></p>
+    <div id="lots"></div>
+  </section>
+</div></main>
+
+<div id="viewer" class="hide">
+  <button class="x" id="v-close">Close</button>
+  <button class="nav prev" id="v-prev">&lsaquo;</button>
+  <img id="v-img" alt="">
+  <button class="nav next" id="v-next">&rsaquo;</button>
+  <div class="bar2"><span id="v-cap"></span><a class="btn" id="v-dl">Download full size</a></div>
+</div>
+
+<script>
+'use strict';
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const STAGES = ['Lot prep', 'Foundation', 'Walls going up', 'Roof on', 'Exterior finish', 'Drywall', 'Interior finishes', 'Final touches', 'Complete'];
+const params = new URLSearchParams(location.search);
+const backend = params.get('u'), key = params.get('k');
+let view = null;          // what the server sent
+let me = '';              // agent being viewed
+let filter = 'all';
+let shown = { files: [], i: 0 };
+
+const remember = { get() { try { return localStorage.getItem('me') || ''; } catch (e) { return ''; } }, set(v) { try { localStorage.setItem('me', v); } catch (e) {} } };
+
+async function call(action, body) {
+  const res = await fetch(backend, { method: 'POST', body: JSON.stringify(Object.assign({ action: action, key: key }, body)) });
+  const out = await res.json();
+  if (!out.ok) throw new Error(out.error);
+  return out;
+}
+
+async function load(date) {
+  $('#msg').classList.remove('hide');
+  $('#msg').textContent = 'Loading the latest photos...';
+  try {
+    if (!/^https:\/\/script\.google\.com\//.test(backend || '') || !key) throw new Error('This link is incomplete. Ask your photographer for a new one.');
+    view = await call('teamView', { date: date });
+    $('#msg').classList.add('hide');
+    if (!view.run) { $('#community').textContent = 'Update Photos'; $('#msg').classList.remove('hide'); $('#msg').textContent = 'No photos yet. They appear here as they are taken.'; return; }
+    $('#community').textContent = view.run.community;
+    $('#date').innerHTML = view.runs.map(r => `<option ${r.date === view.run.date ? 'selected' : ''}>${esc(r.date)}</option>`).join('');
+    const left = view.expireDays - Math.floor((Date.now() - new Date(view.run.date + 'T12:00:00').getTime()) / 86400000);
+    $('#expires').textContent = left > 0 ? 'Photos are removed in ' + left + ' day' + (left === 1 ? '' : 's') : 'These photos are about to be removed';
+    const saved = remember.get();
+    if (view.run.agents.some(a => a.name === saved)) open(saved); else home();
+  } catch (e) {
+    $('#home').classList.add('hide'); $('#agent').classList.add('hide');
+    $('#msg').textContent = /owner token|Unknown action/.test(e.message) ? 'This page is being set up. Please try again shortly.' : e.message;
+  }
+}
+
+const stats = a => ({
+  homes: a.lots.length,
+  photos: a.lots.reduce((n, l) => n + l.files.length, 0),
+  sent: a.lots.filter(l => l.sent).length,
+  closing: a.lots.filter(l => STAGES.indexOf(l.stage) >= 7).length,
+});
+
+function home() {
+  me = '';
+  $('#agent').classList.add('hide');
+  $('#home').classList.remove('hide');
+  const ranked = view.run.agents.slice().sort((a, b) => b.lots.length - a.lots.length);
+  const top = ranked.length ? ranked[0].lots.length : 0;
+  $('#people').innerHTML = ranked.map((a, i) => {
+    const s = stats(a);
+    const place = ranked.findIndex(o => o.lots.length === a.lots.length) + 1; // ties share a place
+    return `<button class="person" style="--c:${esc(a.color)}" data-name="${esc(a.name)}">
+      ${s.homes && s.homes === top ? '<span class="lead">Most homes</span>' : ''}
+      <div class="rank">#${place}</div>
+      <div class="name">${esc(a.name)}</div>
+      <div class="big">${s.homes}<small>${s.homes === 1 ? 'home' : 'homes'} in this run</small></div>
+      <div class="bar"><i style="width:${s.homes ? Math.round(s.sent / s.homes * 100) : 0}%"></i></div>
+      <div class="stats"><span><b>${s.sent}</b> of ${s.homes} sent to customers</span><span><b>${s.closing}</b> near completion</span><span><b>${s.photos}</b> photos</span></div>
+      <div class="go">Open my lots &rarr;</div>
+    </button>`;
+  }).join('');
+}
+
+function open(name) {
+  me = name;
+  remember.set(name);
+  $('#home').classList.add('hide');
+  $('#agent').classList.remove('hide');
+  const a = view.run.agents.find(g => g.name === name);
+  $('#who').textContent = name;
+  $('#who-dot').style.background = a.color;
+  $('#drive').href = a.folderUrl || '#';
+  $('#drive').classList.toggle('hide', !a.folderUrl);
+  renderLots();
+  window.scrollTo(0, 0);
+}
+
+function renderLots() {
+  const a = view.run.agents.find(g => g.name === me);
+  const s = stats(a);
+  const q = $('#find').value.trim();
+  const lots = a.lots.filter(l => (!q || l.lot.indexOf(q) === 0) && (filter === 'all' || (filter === 'done') === l.sent));
+  $('#sum').textContent = s.homes + ' homes, ' + s.photos + ' full-resolution photos. ' + s.sent + ' of ' + s.homes + ' marked sent to customers.';
+  $('#lots').innerHTML = lots.map(l => {
+    const at = STAGES.indexOf(l.stage);
+    return `<div class="card lot ${l.sent ? 'sent' : ''}" data-lot="${esc(l.lot)}">
+      <div class="head">
+        <span class="num">Lot ${esc(l.lot)}</span>
+        <span class="muted grow">${l.files.length} photos${l.stage ? ' · ' + esc(l.stage) : ''}</span>
+        <button data-act="zip">Download all</button>
+        <a class="btn" href="${esc(l.folderUrl)}" target="_blank" rel="noopener">Open in Drive</a>
+        <label class="tick"><input type="checkbox" data-act="sent" ${l.sent ? 'checked' : ''}> Sent to customer</label>
+      </div>
+      ${at >= 0 ? `<div class="stage" title="${esc(l.stage)}">${STAGES.map((n, i) => `<i class="${i <= at ? 'on' : ''}"></i>`).join('')}</div>` : ''}
+      ${l.note ? `<div class="note"><span class="grow">${esc(l.note)}</span><button data-act="copy">Copy note</button></div>` : ''}
+      <div class="grid">${l.files.map((f, i) => `<button data-act="view" data-i="${i}" title="${esc(f.name)}"><img loading="lazy" alt="${esc(f.name)}" src="https://drive.google.com/thumbnail?id=${esc(f.id)}&sz=w480"></button>`).join('')}</div>
+    </div>`;
+  }).join('') || '<p class="muted" style="margin:16px 4px">No lots match.</p>';
+}
+
+$('#people').addEventListener('click', e => { const b = e.target.closest('[data-name]'); if (b) open(b.dataset.name); });
+$('#back').addEventListener('click', () => { remember.set(''); home(); });
+$('#date').addEventListener('change', e => load(e.target.value));
+$('#find').addEventListener('input', renderLots);
+$('#filter').addEventListener('click', e => {
+  if (!e.target.dataset.f) return;
+  filter = e.target.dataset.f;
+  document.querySelectorAll('#filter button').forEach(b => b.classList.toggle('on', b === e.target));
+  renderLots();
+});
+
+$('#lots').addEventListener('click', async e => {
+  const t = e.target.closest('[data-act]');
+  if (!t) return;
+  const card = t.closest('[data-lot]');
+  const lot = view.run.agents.find(g => g.name === me).lots.find(l => l.lot === card.dataset.lot);
+  const where = { community: view.run.community, date: view.run.date, agent: me, lot: lot.lot };
+  if (t.dataset.act === 'copy') {
+    await navigator.clipboard.writeText(lot.note);
+    t.textContent = 'Copied';
+  } else if (t.dataset.act === 'view') {
+    shown = { files: lot.files, i: Number(t.dataset.i) };
+    showPhoto();
+  } else if (t.dataset.act === 'zip') {
+    t.disabled = true; t.textContent = 'Preparing...';
+    try {
+      const out = await call('zip', where);
+      location.href = 'https://drive.google.com/uc?export=download&id=' + out.id;
+      t.textContent = 'Download all';
+    } catch (err) { t.textContent = 'Use Open in Drive'; alert(err.message); }
+    t.disabled = false;
+  } else if (t.dataset.act === 'sent') {
+    lot.sent = t.checked;
+    card.classList.toggle('sent', lot.sent);
+    try { await call('markSent', Object.assign({ sent: lot.sent }, where)); } catch (err) { lot.sent = !lot.sent; alert('Could not save that: ' + err.message); }
+    renderLots();
+  }
+});
+
+function showPhoto() {
+  const f = shown.files[shown.i];
+  $('#v-img').src = 'https://drive.google.com/thumbnail?id=' + f.id + '&sz=w1600';
+  $('#v-cap').textContent = (shown.i + 1) + ' of ' + shown.files.length;
+  $('#v-dl').href = 'https://drive.google.com/uc?export=download&id=' + f.id;
+  $('#viewer').classList.remove('hide');
+}
+const step = d => { shown.i = (shown.i + d + shown.files.length) % shown.files.length; showPhoto(); };
+$('#v-prev').addEventListener('click', () => step(-1));
+$('#v-next').addEventListener('click', () => step(1));
+$('#v-close').addEventListener('click', () => $('#viewer').classList.add('hide'));
+$('#viewer').addEventListener('click', e => { if (e.target.id === 'viewer') $('#viewer').classList.add('hide'); });
+document.addEventListener('keydown', e => {
+  if ($('#viewer').classList.contains('hide')) return;
+  if (e.key === 'Escape') $('#viewer').classList.add('hide');
+  if (e.key === 'ArrowLeft') step(-1);
+  if (e.key === 'ArrowRight') step(1);
+});
+
+load('');
+</script>
+</body>
+</html>

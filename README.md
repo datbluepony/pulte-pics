@@ -3,7 +3,7 @@
 Photo-run app for Verdana Village update photos.
 
 - `docs/index.html` is the photographer's side (iPhone). Upload the agents' starred map, confirm the lots, follow the route, shoot each lot. Photos upload in the background at full resolution.
-- `docs/agent.html` is the agents' side (PC). Each agent has a private link that shows only their lots, with thumbnails, the customer note and downloads.
+- `docs/team.html` is the agents' side (PC). One shared link opens a landing page ranked by homes in the latest run; each agent clicks their name to see their lots, with a photo viewer, the customer note, downloads and a "sent to customer" tick. (`docs/agent.html` is the older per-agent page and still works for old links.)
 - `apps-script/Code.gs` is the backend. It runs in the photographer's Google account, stores photos in Google Drive under `Pulte Pics / Verdana Village / date / agent / Lot N`, emails agents, and deletes runs after 11 days.
 
 No photos are stored on GitHub. The site is only the app.
@@ -16,7 +16,7 @@ Everything is free: GitHub Pages hosts the app, Google Drive and Gmail (through 
 2. In the editor choose the `setup` function and press Run. Approve the permissions. The execution log prints your owner token.
 3. Press Deploy, New deployment, type Web app. Set "Execute as" to Me and "Who has access" to Anyone. Copy the web app URL.
 4. Open the app on the iPhone, go to Settings, paste the URL and the owner token, fill in each agent's email, and press Save and connect.
-5. Copy each agent's link from Settings and send it to them once. In Safari use Share, then Add to Home Screen, to install the app.
+5. Copy the team link from Settings and send it to the agents once; it is also in every "photos are ready" email. In Safari use Share, then Add to Home Screen, to install the app.
 
 After changing `Code.gs`, use Deploy, Manage deployments, Edit, New version, so the URL stays the same.
 
