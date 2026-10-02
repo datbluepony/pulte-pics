@@ -666,12 +666,31 @@ async function openCamera() {
     video.srcObject = stream;
     video.play().catch(() => {});
     if (!video.videoWidth) await new Promise(r => video.addEventListener('loadedmetadata', r, { once: true }));
-    $('#cam-top').textContent = 'Lot ' + currentLot + ' · ' + video.videoWidth + ' × ' + video.videoHeight;
+    await sharpen(stream.getVideoTracks()[0]);
+    showCamSize();
   } catch (e) {
     closeCamera();
     alert('The camera would not start (' + e.message + '). Use "Add from library" instead.');
   }
 }
+
+/** Push the camera to the largest picture size it offers. */
+async function sharpen(track) {
+  try {
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (!caps.width || !caps.height) return;
+    const before = video.videoWidth * video.videoHeight;
+    await track.applyConstraints({ width: { ideal: caps.width.max }, height: { ideal: caps.height.max } });
+    // give the new size a moment to reach the preview
+    for (let i = 0; i < 10 && video.videoWidth * video.videoHeight === before; i++) await sleep(100);
+  } catch (e) { /* the camera keeps the size it started with */ }
+}
+
+function showCamSize() {
+  const mp = (video.videoWidth * video.videoHeight / 1e6).toFixed(1);
+  $('#cam-top').textContent = 'Lot ' + currentLot + ' · ' + video.videoWidth + ' × ' + video.videoHeight + ' (' + mp + ' MP)';
+}
+video.addEventListener('resize', () => { if (stream) showCamSize(); });
 
 function closeCamera() {
   if (stream) stream.getTracks().forEach(t => t.stop());
@@ -690,7 +709,12 @@ $('#cam-shutter').addEventListener('click', async () => {
   c.getContext('2d').drawImage(video, 0, 0);
   const flash = $('#cam-flash');
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
+  let blob = null;
+  // phones that offer a true still-photo capture (not iPhone, today) use it for full sensor quality
+  if (window.ImageCapture && stream) {
+    try { blob = await new ImageCapture(stream.getVideoTracks()[0]).takePhoto(); } catch (err) { blob = null; }
+  }
+  if (!blob) blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.97));
   await queuePhoto(blob, 'jpg', c);
   $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
 });
