@@ -12,6 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
+const VERSION = 9; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;      // closer than this counts as being at the lot
@@ -118,6 +119,7 @@ async function reconcile() {
 }
 
 let pumping = false;
+let delivery = store.get('delivery', { lastOk: '', lastError: '' }); // shown in Settings
 let wakeLock = null;
 
 async function keepAwake(on) {
@@ -182,8 +184,12 @@ async function pump() {
         }
         await queueDel(it.id);
         fails = 0;
+        delivery = { lastOk: new Date().toLocaleString() + ' (lot ' + it.lot + ', ' + it.type + ')', lastError: '' };
+        store.set('delivery', delivery);
       } catch (e) {
         fails++;
+        delivery.lastError = new Date().toLocaleString() + ': lot ' + it.lot + ' ' + it.type + ': ' + e.message;
+        store.set('delivery', delivery);
         setStatus('Send failed, retrying: ' + e.message, 'err');
         await sleep(Math.min(60000, 4000 * fails));
       }
@@ -655,14 +661,43 @@ $('#btn-done').addEventListener('click', async () => {
 // ---------- rapid camera ----------
 
 let stream = null;
+let lenses = [];                       // back cameras this phone offers: [{ id, label }]
+let lensId = store.get('lens', '');    // the one in use, remembered between lots
 const video = $('#cam-video');
+
+/** Short button label for a back camera: iPhone names them "Back Ultra Wide Camera", "Back Camera"... */
+function lensLabel(name) {
+  if (/ultra/i.test(name)) return '.5';
+  if (/tele/i.test(name)) return 'Tele';
+  if (/dual|triple/i.test(name)) return 'Auto';
+  return '1x';
+}
+
+async function findLenses() {
+  const all = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const back = all.filter(d => /back|rear|environment/i.test(d.label));
+  lenses = (back.length ? back : []).map(d => ({ id: d.deviceId, label: lensLabel(d.label) }));
+  // plain .5 and 1x first; the combined "Auto" cameras switch lenses on their own
+  const rank = { '.5': 0, '1x': 1, 'Tele': 2, 'Auto': 3 };
+  lenses.sort((a, b) => rank[a.label] - rank[b.label]);
+  const live = stream && stream.getVideoTracks()[0].getSettings().deviceId;
+  $('#cam-lenses').innerHTML = lenses.length > 1 ? lenses.map(l => `<button data-lens="${esc(l.id)}" class="${l.id === (lensId || live) ? 'on' : ''}">${esc(l.label)}</button>`).join('') : '';
+}
 
 async function openCamera() {
   $('#camera').classList.remove('hide');
   $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
   $('#cam-top').textContent = 'Lot ' + currentLot + ' · starting camera...';
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 4032 }, height: { ideal: 3024 } } });
+    const size = { width: { ideal: 4032 }, height: { ideal: 3024 } };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign(lensId ? { deviceId: { exact: lensId } } : { facingMode: { ideal: 'environment' } }, size) });
+    } catch (e) {
+      if (!lensId) throw e;
+      lensId = ''; // the remembered lens is gone: fall back to the default back camera
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ facingMode: { ideal: 'environment' } }, size) });
+    }
+    findLenses();
     video.srcObject = stream;
     video.play().catch(() => {});
     if (!video.videoWidth) await new Promise(r => video.addEventListener('loadedmetadata', r, { once: true }));
@@ -719,6 +754,14 @@ $('#cam-shutter').addEventListener('click', async () => {
   $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
 });
 $('#cam-close').addEventListener('click', closeCamera);
+$('#cam-lenses').addEventListener('click', e => {
+  if (!e.target.dataset.lens) return;
+  lensId = e.target.dataset.lens;
+  store.set('lens', lensId);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  openCamera();
+});
 
 // ---------- map ----------
 
@@ -811,6 +854,15 @@ function renderSettings() {
       </div>
       <input type="email" data-i="${i}" data-f="email" value="${esc(a.email)}" placeholder="Email address" style="margin-top:8px">
     </div>`).join('');
+  queueAll().then(items => {
+    $('#diag').innerHTML = [
+      'App version ' + VERSION,
+      settings.url ? 'Google web app set' : 'No Google web app URL yet',
+      'Waiting to send: ' + items.filter(i => i.type === 'photo').length + ' photos, ' + items.filter(i => i.type === 'note').length + ' notes' + (memQueue.length ? ' (' + memQueue.length + ' held in memory only: keep the app open)' : ''),
+      'Last delivered: ' + (delivery.lastOk || 'nothing yet'),
+      'Last problem: ' + (delivery.lastError || 'none'),
+    ].map(esc).join('<br>');
+  });
   $('#portal-links').innerHTML = agents.filter(a => a.key).length ? '<h2>Agent links</h2><p class="muted">Each link shows only that agent\'s lots. It stays the same every run, so they can bookmark it.</p>' +
     agents.filter(a => a.key).map(a => `<div class="card row"><span class="grow"><b>${esc(a.name)}</b></span><button class="small" data-link="${esc(portalLink(a))}">Copy link</button></div>`).join('') : '';
 }
@@ -850,6 +902,21 @@ $('#btn-save').addEventListener('click', async () => {
     msg.textContent = 'Could not connect: ' + e.message;
   }
 });
+
+// ---------- updates ----------
+
+/** Phones hold on to old copies of the app. If a newer one is published, load it now. */
+async function checkUpdate() {
+  try {
+    const latest = Number(await (await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' })).text());
+    if (!(latest > VERSION) || sessionStorage.getItem('updatedTo') === String(latest)) return;
+    sessionStorage.setItem('updatedTo', String(latest));
+    if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+    location.replace('./?v=' + latest);
+  } catch (e) { /* offline: keep running what we have */ }
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !stream) checkUpdate(); });
 
 // ---------- start ----------
 

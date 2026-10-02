@@ -143,3 +143,8 @@ nav .tabs button.on { color: var(--brand); box-shadow: inset 0 3px 0 var(--brand
 /* overview: stops are dots, numbers appear once you zoom in */
 #mapinner.far .pin { font-size: 0; padding: 0; }
 .pin { box-sizing: border-box; }
+
+/* lens picker in the camera */
+#cam-lenses { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 124px); display: flex; justify-content: center; gap: 10px; }
+#cam-lenses button { min-height: 44px; min-width: 52px; padding: 0 12px; border-radius: 22px; background: rgba(0,0,0,.55); color: #fff; border-color: rgba(255,255,255,.6); font-size: 15px; }
+#cam-lenses button.on { background: #ffd60a; color: #000; border-color: #ffd60a; }
