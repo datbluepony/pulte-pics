@@ -85,7 +85,7 @@
           <button class="small" id="btn-compass" style="margin-top:6px">Turn on compass</button>
         </div>
       </div>
-      <div id="mini"><div id="mini-target"></div><div id="mini-me" class="hide"></div></div>
+      <div id="mini"><div id="mini-here" class="hide"></div><div id="mini-target"></div><div id="mini-me" class="hide"><i></i></div></div>
       <div class="stack">
         <button class="good" id="btn-here">I'm here: take photos</button>
         <button id="btn-skip-find">Skip the camera, go to notes</button>
@@ -99,6 +99,8 @@
           <input type="file" id="lib" accept="image/*" multiple class="hide">
         </label>
       </div>
+      <p id="lot-photos-sum" class="muted"></p>
+      <div id="lot-photos"></div>
       <h2>Stage</h2>
       <div class="chips" id="stage-chips"></div>
       <label for="lot-extra">Anything to add (optional)</label>

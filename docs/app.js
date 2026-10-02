@@ -44,7 +44,10 @@ function saveRun() {
   try { store.set('run', run); } catch (e) {
     // storage is full: the star snapshots are the only big thing in a run
     run.lots.forEach(l => { delete l.thumb; });
-    store.set('run', run);
+    try { store.set('run', run); } catch (e2) {
+      run.lots.forEach(l => (l.photos || []).forEach(ph => { delete ph.thumb; }));
+      store.set('run', run);
+    }
   }
 }
 const agentColor = name => (agents.find(a => a.name === name) || {}).color || '#cccccc';
@@ -139,9 +142,15 @@ async function pump() {
       setStatus('Sending lot ' + it.lot + '. ' + photos + ' photos left. Keep this screen open.', 'busy');
       try {
         if (it.type === 'photo') {
-          await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.blob) });
+          const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.blob) });
           const lot = run && run.date === it.date && lotOf(it.lot);
-          if (lot) { lot.sent++; saveRun(); renderRoute(); renderLot(); }
+          if (lot) {
+            lot.sent++;
+            // the Drive file id is the proof this photo arrived
+            const photo = (lot.photos || []).find(ph => ph.name === it.name);
+            if (photo) photo.id = up.id;
+            saveRun(); renderRoute(); renderLot();
+          }
         } else {
           await api('note', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, stage: it.stage, note: it.note });
         }
@@ -415,39 +424,59 @@ $('#btn-new').addEventListener('click', async () => {
 
 // ---------- one lot: find it ----------
 
-const MINI_ZOOM = 1.5; // screen pixels per map pixel
+const MINI_ZOOM = 1.5;  // closest view, screen pixels per map pixel
+const MINI_WIDE = 0.25; // widest view
+const HERE_M = 30;      // a lot label this close to you counts as the lot you are on
+
+/** Lot whose label is nearest a map point, if it is close enough to be "this lot". */
+function lotAt(pt) {
+  let best = null, bd = HERE_M / master.geo.mPerPx;
+  for (const n in master.lots) {
+    const d = Math.hypot(master.lots[n][0] - pt[0], master.lots[n][1] - pt[1]);
+    if (d < bd) { bd = d; best = Number(n); }
+  }
+  return best;
+}
 
 function renderFind() {
   if (currentLot == null || lotStep !== 'find' || !master.lots[currentLot]) return;
   const [x, y] = master.lots[currentLot];
   const mini = $('#mini');
   const w = mini.clientWidth, h = mini.clientHeight;
-  mini.style.backgroundSize = (master.image.w * MINI_ZOOM) + 'px ' + (master.image.h * MINI_ZOOM) + 'px';
-  mini.style.backgroundPosition = (w / 2 - x * MINI_ZOOM) + 'px ' + (h / 2 - y * MINI_ZOOM) + 'px';
-
   const me = myMapPoint();
-  const dot = $('#mini-me');
+  const dx = me ? x - me[0] : 0, dy = me ? y - me[1] : 0;
+
+  // live map: zoomed so you and the lot are both in view, closing in as you get nearer
+  const z = me ? Math.max(MINI_WIDE, Math.min(MINI_ZOOM, (Math.min(w, h) - 90) / Math.max(Math.abs(dx), Math.abs(dy), 1))) : MINI_ZOOM;
+  const cx = me ? (x + me[0]) / 2 : x, cy = me ? (y + me[1]) / 2 : y;
+  const place = (el, pt) => { el.style.left = (w / 2 + (pt[0] - cx) * z) + 'px'; el.style.top = (h / 2 + (pt[1] - cy) * z) + 'px'; };
+  mini.style.backgroundSize = (master.image.w * z) + 'px ' + (master.image.h * z) + 'px';
+  mini.style.backgroundPosition = (w / 2 - cx * z) + 'px ' + (h / 2 - cy * z) + 'px';
+  place($('#mini-target'), [x, y]);
+
+  const dot = $('#mini-me'), here = $('#mini-here');
   const near = [currentLot - 1, currentLot + 1].filter(n => master.lots[n]);
-  let hint = near.length ? 'Next to lot ' + near.join(' and ') + '.' : '';
+  let hint = near.length ? 'Lot ' + currentLot + ' is next to ' + near.join(' and ') + '.' : '';
+  $('#arrow').style.transform = 'rotate(' + (me ? Math.atan2(dx, -dy) * 180 / Math.PI - (heading || 0) : 0) + 'deg)';
+  $('#arrow').style.opacity = me ? 1 : 0.25;
+  dot.classList.toggle('hide', !me);
   if (!me) {
-    dot.classList.add('hide');
-    $('#arrow').style.opacity = 0.25;
+    here.classList.add('hide');
     $('#find-dist').textContent = pos ? 'You are not at Verdana Village' : 'Finding you...';
-    $('#find-hint').textContent = hint;
+    $('#find-hint').textContent = hint + (pos ? ' The live map and compass start once you are in the community.' : '');
     return;
   }
-  const dx = x - me[0], dy = y - me[1];
+  place(dot, me);
+  dot.classList.toggle('facing', heading != null);
+  dot.style.transform = 'rotate(' + (heading || 0) + 'deg)';
+  const standing = lotAt(me);
+  here.classList.toggle('hide', standing == null || standing === currentLot);
+  if (standing != null) place(here, master.lots[standing]);
   const metres = Math.hypot(dx, dy) * master.geo.mPerPx;
-  const bearing = Math.atan2(dx, -dy) * 180 / Math.PI; // the map is drawn north-up
-  $('#arrow').style.opacity = 1;
-  $('#arrow').style.transform = 'rotate(' + (bearing - (heading || 0)) + 'deg)';
-  $('#find-dist').textContent = metres < ARRIVED_M ? 'You are at lot ' + currentLot : Math.round(metres * 3.281 / 10) * 10 + ' ft away';
-  if (heading == null) hint += ' Arrow is for a phone pointing north until the compass is on.';
+  $('#find-dist').textContent = standing === currentLot || metres < ARRIVED_M ? 'You are at lot ' + currentLot : Math.round(metres * 3.281 / 10) * 10 + ' ft away';
+  if (standing != null && standing !== currentLot) hint = 'You are at lot ' + standing + '. ' + hint;
+  if (heading == null) hint += ' Turn on the compass to see which way you are facing.';
   $('#find-hint').textContent = hint;
-  const mx = w / 2 - dx * MINI_ZOOM, my = h / 2 - dy * MINI_ZOOM;
-  dot.classList.toggle('hide', mx < 0 || my < 0 || mx > w || my > h);
-  dot.style.left = mx + 'px';
-  dot.style.top = my + 'px';
 }
 
 // ---------- one lot: shoot it ----------
@@ -487,15 +516,39 @@ function renderLot() {
   $('#lot-find').classList.toggle('hide', lotStep !== 'find');
   $('#lot-shoot').classList.toggle('hide', lotStep !== 'shoot');
   if (lotStep === 'find') { renderFind(); return; }
+  const photos = l.photos || [];
+  $('#lot-photos-sum').textContent = !l.count ? 'No photos yet.'
+    : l.sent === l.count ? 'All ' + l.count + ' photos are in Google Drive.'
+    : l.count + ' photos saved in the app. ' + l.sent + ' of ' + l.count + ' delivered to Google Drive so far.';
+  $('#lot-photos-sum').className = l.count && l.sent === l.count ? 'ok' : 'muted';
+  $('#lot-photos').innerHTML = photos.map(ph => `
+    <${ph.id ? `a href="https://drive.google.com/file/d/${esc(ph.id)}/view" target="_blank" rel="noopener"` : 'span'} class="shot ${ph.id ? 'sent' : ''}">
+      ${ph.thumb ? `<img src="${ph.thumb}" alt="${esc(ph.name)}">` : ''}<b>${ph.id ? '✓' : '…'}</b>
+    </${ph.id ? 'a' : 'span'}>`).join('');
   $('#stage-chips').innerHTML = STAGES.map(s => `<button data-stage="${s.id}" class="${s.id === l.stage ? 'on' : ''}">${esc(s.label)}</button>`).join('');
   $('#lot-preview').textContent = stageNote(l) || 'Pick a stage and the customer note is written for you.';
 }
 
+/** Small preview of a photo, from a canvas or an image file. */
+async function makeThumb(source) {
+  try {
+    const img = source instanceof HTMLCanvasElement ? source : await createImageBitmap(source);
+    const size = 96, side = Math.min(img.width, img.height);
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+    return c.toDataURL('image/jpeg', 0.5);
+  } catch (e) {
+    return '';
+  }
+}
+
 /** Queue one photo for upload. The file goes up untouched. */
-async function queuePhoto(blob, ext) {
+async function queuePhoto(blob, ext, thumbSource) {
   const l = lotOf(currentLot);
   l.count++;
   const name = 'Lot ' + l.lot + ' - ' + run.date + ' - ' + String(l.count).padStart(2, '0') + '.' + ext;
+  (l.photos = l.photos || []).push({ name: name, thumb: await makeThumb(thumbSource || blob), id: '' });
   await queuePut({ id: run.date + '/' + l.lot + '/' + l.count, type: 'photo', t: Date.now() + l.count / 1000, community: run.community, date: run.date, agent: l.agent, lot: l.lot, name: name, mime: blob.type || 'image/jpeg', blob: blob });
   saveRun();
 }
@@ -546,7 +599,7 @@ const video = $('#cam-video');
 
 async function openCamera() {
   $('#camera').classList.remove('hide');
-  $('#cam-count').textContent = lotOf(currentLot).count;
+  $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
   $('#cam-top').textContent = 'Lot ' + currentLot + ' · starting camera...';
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 4032 }, height: { ideal: 3024 } } });
@@ -578,8 +631,8 @@ $('#cam-shutter').addEventListener('click', async () => {
   const flash = $('#cam-flash');
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
-  await queuePhoto(blob, 'jpg');
-  $('#cam-count').textContent = lotOf(currentLot).count;
+  await queuePhoto(blob, 'jpg', c);
+  $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
 });
 $('#cam-close').addEventListener('click', closeCamera);
 
@@ -598,7 +651,18 @@ function renderMap(center) {
   }).join('');
   const me = myMapPoint();
   const meDot = me ? `<div class="me" style="left:${(me[0] / master.image.w * 100).toFixed(2)}%;top:${(me[1] / master.image.h * 100).toFixed(2)}%"></div>` : '';
-  inner.innerHTML = '<img src="map.jpg" alt="Verdana Village site map">' + pins + meDot;
+  // route line: grey where you have been, blue for what is left
+  let line = '';
+  if (run && run.phase === 'route') {
+    const pts = run.order.filter(n => master.lots[n]);
+    const firstTodo = pts.findIndex(n => !lotOf(n).done);
+    const path = list => list.map(n => master.lots[n].join(',')).join(' ');
+    const donePts = firstTodo < 0 ? pts : pts.slice(0, firstTodo + 1);
+    const todoPts = firstTodo < 0 ? [] : pts.slice(firstTodo);
+    line = `<svg class="routeline" viewBox="0 0 ${master.image.w} ${master.image.h}" preserveAspectRatio="none">
+      <polyline points="${path(donePts)}" stroke="#7b8794"/><polyline points="${path(todoPts)}" stroke="#1a73e8"/></svg>`;
+  }
+  inner.innerHTML = '<img src="map.jpg" alt="Verdana Village site map">' + line + pins + meDot;
   const focus = next || (run && run.lots[0] && run.lots[0].lot);
   if (center && master.lots[focus]) {
     const [x, y] = master.lots[focus];
@@ -607,7 +671,7 @@ function renderMap(center) {
     wrap.scrollTop = y / master.image.h * h - wrap.clientHeight / 2;
   }
 }
-$('#zoom-in').addEventListener('click', () => { zoom = Math.min(12, zoom * 1.6); renderMap(true); });
+$('#zoom-in').addEventListener('click', () => { zoom = Math.min(20, zoom * 1.6); renderMap(true); });
 $('#zoom-out').addEventListener('click', () => { zoom = Math.max(1, zoom / 1.6); renderMap(true); });
 $('#zoom-next').addEventListener('click', () => { zoom = Math.max(zoom, 6); renderMap(true); });
 $('#mapinner').addEventListener('click', e => {
