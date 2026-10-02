@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Update Photos</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="wide">
+<header>
+  <h1 id="title">Update photos</h1>
+  <div class="sub" id="sub"></div>
+</header>
+<main style="padding-bottom:40px">
+  <div class="card row">
+    <div class="grow">
+      <label for="date">Photo date</label>
+      <select id="date"></select>
+    </div>
+    <div class="grow">
+      <label for="find">Find a lot</label>
+      <input type="text" id="find" inputmode="numeric" placeholder="Lot number">
+    </div>
+    <a class="btn" id="all" target="_blank" rel="noopener">Open all in Google Drive</a>
+  </div>
+  <p class="muted" id="msg">Loading your photos...</p>
+  <div id="lots"></div>
+</main>
+<script>
+'use strict';
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const params = new URLSearchParams(location.search);
+const backend = params.get('u');
+const key = params.get('k');
+let view = null;
+
+async function load(date) {
+  $('#msg').textContent = 'Loading your photos...';
+  try {
+    if (!/^https:\/\/script\.google\.com\//.test(backend || '') || !key) throw new Error('This link is incomplete. Ask your photographer for a new one.');
+    const res = await fetch(backend, { method: 'POST', body: JSON.stringify({ action: 'agentView', key: key, date: date }) });
+    const out = await res.json();
+    if (!out.ok) throw new Error(out.error);
+    view = out;
+    render();
+  } catch (e) {
+    $('#msg').textContent = e.message;
+    $('#lots').innerHTML = '';
+  }
+}
+
+function render() {
+  $('#title').textContent = 'Update photos for ' + view.agent;
+  if (!view.run) { $('#msg').textContent = 'No photos yet. They appear here as they are taken.'; return; }
+  $('#sub').textContent = view.run.community;
+  $('#date').innerHTML = view.runs.map(r => `<option ${r.date === view.run.date ? 'selected' : ''}>${esc(r.date)}</option>`).join('');
+  $('#all').href = view.run.folderUrl;
+  const q = $('#find').value.trim();
+  const lots = view.run.lots.filter(l => !q || l.lot.indexOf(q) === 0);
+  const photos = view.run.lots.reduce((n, l) => n + l.files.length, 0);
+  $('#msg').textContent = view.run.lots.length + ' lots, ' + photos + ' photos, full resolution. Photos are removed ' + view.expireDays + ' days after the photo date.';
+  $('#lots').innerHTML = lots.map(l => `
+    <div class="card">
+      <div class="row">
+        <div class="grow"><span style="font-size:24px;font-weight:700">Lot ${esc(l.lot)}</span> <span class="muted">${l.files.length} photos${l.stage ? ' · ' + esc(l.stage) : ''}</span></div>
+        <a class="btn small" href="${esc(l.folderUrl)}" target="_blank" rel="noopener">Download all (opens Drive)</a>
+      </div>
+      ${l.note ? `<div class="row" style="margin-top:6px"><p class="grow" style="margin:0">${esc(l.note)}</p><button class="small" data-copy="${esc(l.note)}">Copy note</button></div>` : ''}
+      <div class="grid">
+        ${l.files.map(f => `<a href="https://drive.google.com/uc?export=download&id=${esc(f.id)}" title="Download ${esc(f.name)}">
+          <img loading="lazy" alt="${esc(f.name)}" src="https://drive.google.com/thumbnail?id=${esc(f.id)}&sz=w480"></a>`).join('')}
+      </div>
+    </div>`).join('') || '<p class="muted">No lot matches that number.</p>';
+}
+
+$('#date').addEventListener('change', e => load(e.target.value));
+$('#find').addEventListener('input', () => view && view.run && render());
+$('#lots').addEventListener('click', async e => {
+  if (!e.target.dataset.copy) return;
+  await navigator.clipboard.writeText(e.target.dataset.copy);
+  e.target.textContent = 'Copied';
+});
+load('');
+</script>
+</body>
+</html>

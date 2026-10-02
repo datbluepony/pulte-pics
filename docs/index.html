@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pulte Pics">
+<meta name="theme-color" content="#0b3c5d">
+<meta name="robots" content="noindex">
+<title>Pulte Pics</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Pulte Pics</h1>
+  <div class="sub" id="headsub">Verdana Village</div>
+</header>
+
+<main>
+  <!-- Run: start, review, route -->
+  <section id="view-run">
+    <div id="run-start">
+      <h2>New photo run</h2>
+      <div class="card">
+        <label for="run-date">Date</label>
+        <input type="date" id="run-date">
+        <label for="map-file">Agents' starred map (PDF or screenshots)</label>
+        <input type="file" id="map-file" accept="application/pdf,image/*" multiple>
+        <div class="stack">
+          <button class="primary" id="btn-read">Read the map</button>
+          <button id="btn-manual">Skip the map and add lots by hand</button>
+        </div>
+        <p class="muted" id="read-msg"></p>
+      </div>
+    </div>
+
+    <div id="run-review" class="hide">
+      <h2>Check the lots</h2>
+      <p class="muted" id="review-sum"></p>
+      <div id="review-list"></div>
+      <div class="stack">
+        <button id="btn-add">Add a lot</button>
+        <button class="primary" id="btn-route">Build my route</button>
+        <button id="btn-discard">Start over</button>
+      </div>
+    </div>
+
+    <div id="run-route" class="hide">
+      <h2 id="route-title">Route</h2>
+      <p class="muted" id="route-sum"></p>
+      <div id="route-list"></div>
+      <div class="stack">
+        <button class="primary" id="btn-notify">Email agents their link</button>
+        <button id="btn-edit">Edit the lot list</button>
+        <button id="btn-new">Finish and start a new run</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- One lot -->
+  <section id="view-lot" class="hide">
+    <button class="small" id="btn-back">&larr; Route</button>
+    <div class="agent-band card" id="lot-band">
+      <div>
+        <div id="lot-agent"></div>
+        <div class="big-lot" id="lot-num"></div>
+      </div>
+      <div id="lot-count" style="text-align:right"></div>
+    </div>
+    <div class="row">
+      <label class="btn primary grow" style="margin:0;color:#fff;font-size:16px">Take photo
+        <input type="file" id="cam" accept="image/*" capture="environment" class="hide">
+      </label>
+      <label class="btn grow" style="margin:0;color:inherit;font-size:16px">Add from library
+        <input type="file" id="lib" accept="image/*" multiple class="hide">
+      </label>
+    </div>
+    <h2>Stage</h2>
+    <div class="chips" id="stage-chips"></div>
+    <label for="lot-extra">Anything to add (optional)</label>
+    <textarea id="lot-extra" rows="2"></textarea>
+    <div class="card muted" id="lot-preview"></div>
+    <div class="stack">
+      <button class="good" id="btn-done">Done &rarr; next lot</button>
+    </div>
+  </section>
+
+  <!-- Map -->
+  <section id="view-map" class="hide">
+    <div class="row" style="margin-bottom:8px">
+      <button class="small" id="zoom-out">&minus;</button>
+      <button class="small" id="zoom-in">+</button>
+      <button class="small" id="zoom-next">Go to next lot</button>
+      <span class="muted">Tap a pin to open it</span>
+    </div>
+    <div id="mapwrap"><div id="mapinner"></div></div>
+  </section>
+
+  <!-- Settings -->
+  <section id="view-settings" class="hide">
+    <h2>Connection</h2>
+    <div class="card">
+      <label for="set-url">Google web app URL</label>
+      <input type="text" id="set-url" autocapitalize="off" autocorrect="off" placeholder="https://script.google.com/macros/s/.../exec">
+      <label for="set-token">Owner token</label>
+      <input type="password" id="set-token" autocapitalize="off" autocorrect="off">
+      <label for="set-expire">Delete photos after (days)</label>
+      <input type="number" id="set-expire" min="1" max="90">
+    </div>
+    <h2>Agents</h2>
+    <div id="agent-list"></div>
+    <div class="stack">
+      <button id="btn-add-agent">Add an agent</button>
+      <button class="primary" id="btn-save">Save and connect</button>
+    </div>
+    <p class="muted" id="set-msg"></p>
+    <div id="portal-links"></div>
+  </section>
+</main>
+
+<nav>
+  <div id="status">Not connected yet. Open Settings.</div>
+  <div class="tabs">
+    <button data-tab="run" class="on">Route</button>
+    <button data-tab="map">Map</button>
+    <button data-tab="settings">Settings</button>
+  </div>
+</nav>
+
+<script src="app.js"></script>
+</body>
+</html>

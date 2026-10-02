@@ -1,0 +1,9 @@
+{
+  "name": "Pulte Pics",
+  "short_name": "Pulte Pics",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#0b3c5d",
+  "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}
