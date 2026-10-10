@@ -125,6 +125,13 @@ button svg, .btn svg { width: 16px; height: 16px; flex: none; }
 .lotno b { display: block; font: 600 46px/1 var(--display); color: var(--ink); letter-spacing: -.02em; text-transform: none; margin-top: 4px; }
 .status { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 99px; font-size: 12px; font-weight: 800; background: var(--gold-soft); color: #8a6a1f; white-space: nowrap; }
 .status.sent { background: var(--good-soft); color: var(--good); }
+.flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.flag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 99px; font-size: 12px; font-weight: 800; }
+.flag.up { background: #fff4d9; color: #8a6a1f; }
+.flag.new { background: #e6f0f8; color: var(--navy); }
+.live { display: inline-flex; align-items: center; gap: 6px; }
+.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #4cd38a; box-shadow: 0 0 0 4px rgba(76, 211, 138, .2); animation: blink 2s infinite; }
+@keyframes blink { 50% { opacity: .35; } }
 .stepper { display: grid; gap: 8px; }
 .stepper .steps { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
 .stepper i { height: 6px; border-radius: 3px; background: #e8edf2; }
@@ -294,6 +301,7 @@ async function load(date) {
     $('#expires').textContent = left > 0 ? 'Available ' + left + ' more day' + (left === 1 ? '' : 's') : 'Being removed soon';
     const newer = view.runs.find(r => r.inProgress && r.date > view.run.date);
     $('#banner').classList.toggle('hide', !view.run.inProgress && !newer);
+    $('#banner').querySelector('.ico').className = view.run.inProgress ? 'ico live' : 'ico';
     $('#banner-text').textContent = view.run.inProgress
       ? 'This photo run is in progress: ' + view.run.shot + ' of ' + view.run.planned + ' homes photographed so far. The rest appear as they are taken.'
       : newer ? 'These are the last completed photos. The ' + longDate(newer.date) + ' run is in progress and shows here once it is finished.' : '';
@@ -310,6 +318,7 @@ const stats = a => ({
   photos: a.lots.reduce((n, l) => n + l.files.length, 0),
   sent: a.lots.filter(l => l.sent).length,
   closing: a.lots.filter(l => STAGES.indexOf(l.stage) >= 7).length,
+  moved: a.lots.filter(l => STAGES.indexOf(l.prevStage) >= 0 && STAGES.indexOf(l.stage) > STAGES.indexOf(l.prevStage)).length,
 });
 
 function ring(pct, label) {
@@ -332,7 +341,7 @@ function home() {
       ${s.homes && s.homes === top ? '<span class="crown">&#9733; Most homes</span>' : ''}
       <div class="top"><span class="avatar">${esc(a.name.slice(0, 1).toUpperCase())}</span><div><div class="rank ${place === 1 ? 'first' : ''}">${ord(place)} place</div><div class="name">${esc(a.name)}</div></div></div>
       <div class="middle"><div class="big">${s.homes}<small>${s.homes === 1 ? 'home' : 'homes'} under construction</small></div>${ring(pct, 'sent')}</div>
-      <div class="facts"><div><b>${s.photos}</b>photos</div><div><b>${s.sent}/${s.homes}</b>sent</div><div><b>${s.closing}</b>near done</div></div>
+      <div class="facts"><div><b>${s.photos}</b>photos</div><div><b>${s.sent}/${s.homes}</b>sent</div><div><b>${s.moved}</b>moved up</div></div>
       <div class="go">Open my lots<i>&rarr;</i></div>
     </button>`;
   }).join('');
@@ -353,6 +362,15 @@ function open(name) {
   window.scrollTo(0, 0);
 }
 
+/** "Moved up" when the stage advanced since the last run; "New this run" for a lot that was not on the last map. */
+function badges(l) {
+  const was = STAGES.indexOf(l.prevStage), now = STAGES.indexOf(l.stage);
+  const out = [];
+  if (was >= 0 && now > was) out.push(`<span class="flag up">&#9650; Moved up ${now - was} stage${now - was === 1 ? '' : 's'} from ${esc(l.prevStage)}</span>`);
+  if (l.isNew) out.push('<span class="flag new">New this run</span>');
+  return out.length ? `<div class="flags">${out.join('')}</div>` : '';
+}
+
 function lotCard(l) {
   const at = STAGES.indexOf(l.stage);
   const first = l.files[0];
@@ -363,7 +381,7 @@ function lotCard(l) {
     </button>
     <div class="body">
       <div class="lothead">
-        <div class="lotno">Lot<b>${esc(l.lot)}</b></div>
+        <div><div class="lotno">Lot<b>${esc(l.lot)}</b></div>${badges(l)}</div>
         <span class="status ${l.sent ? 'sent' : ''}">${l.sent ? '&#10003; Sent to customer' : 'Ready to send'}</span>
       </div>
       ${at >= 0 ? `<div class="stepper"><div class="steps">${STAGES.map((n, i) => `<i class="${i < at ? 'on' : i === at ? 'at' : ''}" title="${esc(n)}"></i>`).join('')}</div><div class="cap"><span>Stage ${at + 1} of ${STAGES.length} · <b>${esc(l.stage)}</b></span><span>${Math.round((at + 1) / STAGES.length * 100)}%</span></div></div>` : ''}
@@ -459,6 +477,19 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') step(-1);
   if (e.key === 'ArrowRight') step(1);
 });
+
+/** Quietly pick up new photos and ticks while the page is open, without disturbing what the agent is looking at. */
+async function refresh() {
+  if (document.hidden || !view || !view.run || !$('#viewer').classList.contains('hide') || document.activeElement === $('#find')) return;
+  try {
+    const fresh = await call('teamView', { date: view.run.date });
+    if (!fresh.run || JSON.stringify(fresh.run) === JSON.stringify(view.run)) return;
+    view = fresh;
+    if (me) renderLots(); else home();
+  } catch (e) { /* try again next time */ }
+}
+setInterval(refresh, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 
 load('');
 </script>

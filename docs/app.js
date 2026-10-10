@@ -12,10 +12,11 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 16; // bump with docs/version.txt on every release
+const VERSION = 17; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
-const ARRIVED_M = 25;      // closer than this counts as being at the lot
+const ARRIVED_M = 25;
+const UPLOADS_AT_ONCE = 2;  // parallel photo uploads; Google handles two comfortably      // closer than this counts as being at the lot
 const STAGES = [
   { id: 'prep', label: 'Lot prep', text: 'The homesite has been cleared and is being prepared for the foundation.' },
   { id: 'slab', label: 'Foundation', text: 'The foundation has been poured.' },
@@ -170,8 +171,28 @@ async function pump() {
       }
       if (!navigator.onLine) { setStatus('Offline. ' + photos + ' photos waiting.', 'err'); break; }
       keepAwake(true);
-      const it = items[0];
-      setStatus(it.type === 'plan' ? 'Sending the lot list...' : 'Sending lot ' + it.lot + '. ' + photos + ' photos left. Keep this screen open.', 'busy');
+      // photos go up two at a time; lot lists and notes go on their own, in order
+      const batch = items[0].type === 'photo' ? items.filter(i => i.type === 'photo').slice(0, UPLOADS_AT_ONCE) : [items[0]];
+      setStatus(items[0].type === 'plan' ? 'Sending the lot list...' : 'Sending lot ' + items[0].lot + '. ' + photos + ' photos left. Keep this screen open.', 'busy');
+      const results = await Promise.all(batch.map(sendItem));
+      const failed = results.filter(r => r !== true);
+      if (!failed.length) { fails = 0; continue; }
+      fails++;
+      delivery.lastError = new Date().toLocaleString() + ': ' + failed[0];
+      store.set('delivery', delivery);
+      setStatus('Send failed, retrying: ' + failed[0], 'err');
+      await sleep(Math.min(60000, 4000 * fails));
+    }
+  } finally {
+    pumping = false;
+    keepAwake(false);
+  }
+}
+
+/** Deliver one queued item. Returns true, or the error message. */
+const inFlight = new Set(); // queue ids being uploaded right now
+async function sendItem(it) {
+      inFlight.add(it.id);
       try {
         if (it.type === 'photo') {
           const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.buf ? new Blob([it.buf]) : it.blob) });
@@ -189,21 +210,14 @@ async function pump() {
           await api('note', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, stage: it.stage, note: it.note });
         }
         await queueDel(it.id);
-        fails = 0;
         delivery = { lastOk: new Date().toLocaleString() + ' (lot ' + it.lot + ', ' + it.type + ')', lastError: '' };
         store.set('delivery', delivery);
+        return true;
       } catch (e) {
-        fails++;
-        delivery.lastError = new Date().toLocaleString() + ': lot ' + it.lot + ' ' + it.type + ': ' + e.message;
-        store.set('delivery', delivery);
-        setStatus('Send failed, retrying: ' + e.message, 'err');
-        await sleep(Math.min(60000, 4000 * fails));
+        return 'lot ' + it.lot + ' ' + it.type + ': ' + e.message;
+      } finally {
+        inFlight.delete(it.id);
       }
-    }
-  } finally {
-    pumping = false;
-    keepAwake(false);
-  }
 }
 window.addEventListener('online', pump);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pump(); });
@@ -502,6 +516,7 @@ function lotAt(pt) {
   return best;
 }
 
+let arrivedAt = null; // lot we last announced arrival at
 let drive = { lot: null, from: null, pts: null }; // road path from where you are to the lot
 
 /** Keep the driving line fresh: recompute when the lot changes or you have moved about 25 m. */
@@ -563,7 +578,14 @@ function renderFind() {
   here.classList.toggle('hide', standing == null || standing === currentLot);
   if (standing != null) place(here, master.lots[standing]);
   const metres = Math.hypot(dx, dy) * master.geo.mPerPx;
-  $('#find-dist').textContent = standing === currentLot || metres < ARRIVED_M ? 'You are at lot ' + currentLot : Math.round(metres * 3.281 / 10) * 10 + ' ft away';
+  const arrived = standing === currentLot || metres < ARRIVED_M;
+  $('#find-dist').textContent = arrived ? 'You are at lot ' + currentLot : Math.round(metres * 3.281 / 10) * 10 + ' ft away';
+  $('.compass').classList.toggle('arrived', arrived);
+  $('#btn-here').classList.toggle('pulse', arrived);
+  if (arrived && arrivedAt !== currentLot) {
+    arrivedAt = currentLot;
+    try { navigator.vibrate && navigator.vibrate([60, 40, 60]); } catch (e) { /* not on iPhone */ }
+  }
   if (standing != null && standing !== currentLot) hint = 'You are at lot ' + standing + '. ' + hint;
   if (heading == null) hint += ' Turn on the compass to see which way you are facing.';
   $('#find-hint').textContent = hint;
@@ -615,9 +637,9 @@ function renderLot() {
     : l.sent === l.count ? 'All ' + l.count + ' photos are in Google Drive.'
     : l.count + ' photos saved in the app. ' + l.sent + ' of ' + l.count + ' delivered to Google Drive so far.';
   $('#lot-photos-sum').className = l.count && l.sent === l.count ? 'ok' : 'muted';
-  $('#lot-photos').innerHTML = photos.map(ph => `
+  $('#lot-photos').innerHTML = photos.map((ph, i) => `
     <${ph.id ? `a href="https://drive.google.com/file/d/${esc(ph.id)}/view" target="_blank" rel="noopener"` : 'span'} class="shot ${ph.id ? 'sent' : ''}">
-      ${ph.thumb ? `<img src="${ph.thumb}" alt="${esc(ph.name)}">` : ''}<b>${ph.id ? '✓' : '…'}</b>
+      ${ph.thumb ? `<img src="${ph.thumb}" alt="${esc(ph.name)}">` : ''}<b>${ph.id ? '✓' : '…'}</b><i class="del" data-del="${i}" role="button" aria-label="Delete this photo">×</i>
     </${ph.id ? 'a' : 'span'}>`).join('');
   $('#stage-chips').innerHTML = STAGES.map(s => `<button data-stage="${s.id}" class="${s.id === l.stage ? 'on' : ''}">${esc(s.label)}</button>`).join('');
   $('#lot-preview').textContent = stageNote(l) || 'Pick a stage and the customer note is written for you.';
@@ -649,6 +671,32 @@ async function queuePhoto(blob, ext, thumbSource) {
   (l.photos = l.photos || []).push({ name: name, thumb: await makeThumb(thumbSource || blob), id: '' });
   saveRun();
 }
+
+/** Take back a photo shot by mistake: from the queue if it has not gone yet, otherwise from Google Drive. */
+$('#lot-photos').addEventListener('click', async e => {
+  const del = e.target.closest('[data-del]');
+  if (!del) return;
+  e.preventDefault();
+  const l = lotOf(currentLot);
+  const ph = (l.photos || [])[Number(del.dataset.del)];
+  if (!ph || !confirm('Delete this photo? Nobody will see it.')) return;
+  try {
+    if (ph.id) {
+      if ((settings.backend || 0) < 5) { alert('Update the Google script first to delete photos that are already sent.'); return; }
+      await api('deletePhoto', { community: run.community, date: run.date, agent: l.agent, lot: l.lot, id: ph.id });
+      l.sent = Math.max(0, l.sent - 1);
+    } else {
+      const queued = (await queueAll()).find(i => i.type === 'photo' && i.name === ph.name && i.lot === l.lot);
+      if (!queued || inFlight.has(queued.id)) return alert('That photo is uploading right now. Try again in a few seconds.');
+      await queueDel(queued.id);
+    }
+    l.photos.splice(l.photos.indexOf(ph), 1);
+    l.count = Math.max(0, l.count - 1);
+    saveRun(); renderLot(); renderRoute();
+  } catch (err) {
+    alert('Could not delete it: ' + err.message);
+  }
+});
 
 $('#lib').addEventListener('change', async e => {
   for (const file of Array.from(e.target.files)) await queuePhoto(file, (file.name.split('.').pop() || 'jpg').toLowerCase());

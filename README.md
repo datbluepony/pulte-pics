@@ -43,3 +43,7 @@ py tools/georef.py docs
 ```
 
 `georef.py` pins the map to GPS coordinates using the street layout in `tools/osm-roads.json` (© OpenStreetMap contributors, ODbL). Needs `pymupdf numpy pillow scipy opencv-python-headless`.
+
+## Testing the Google script
+
+`node tools/test-backend.js` runs `apps-script/Code.gs` against stand-ins for Drive, script properties, cache, locks and email, and walks through two full photo runs.

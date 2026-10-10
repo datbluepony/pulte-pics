@@ -60,6 +60,7 @@ function route_(req) {
     case 'plan': return plan_(req);
     case 'wipe': return wipe_();
     case 'upload': return upload_(req);
+    case 'deletePhoto': return deletePhoto_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
     default: throw new Error('Unknown action: ' + req.action);
@@ -84,7 +85,7 @@ function teamKey_() {
 
 function config_() {
   return {
-    version: 4,
+    version: 5,
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
     agents: agents_(),
@@ -106,33 +107,57 @@ function saveAgents_(req) {
   PROPS.setProperty('AGENTS', JSON.stringify(agents));
   if (req.expireDays) PROPS.setProperty('EXPIRE_DAYS', String(Math.max(1, Number(req.expireDays))));
   if ('nextRun' in req) PROPS.setProperty('NEXT_RUN', String(req.nextRun || ''));
+  changed_();
   return config_();
 }
 
 // ---------- run plans ----------
 
-/** The lot list of each recent run, from the map: { date: { community, lots: [[lot, agent]], done } }. */
+/**
+ * The lot list of each recent run, from the map, and the stage each lot reached:
+ * { date: { community, lots: [[lot, agent]], stages: { lot: stage }, done } }.
+ * One script property per run (PLAN_yyyy-mm-dd) keeps each well under the size limit.
+ */
 function plans_() {
-  try { return JSON.parse(PROPS.getProperty('PLANS') || '{}'); } catch (err) { return {}; }
+  const all = PROPS.getProperties();
+  let plans = {};
+  try { plans = JSON.parse(all.PLANS || '{}'); } catch (err) { /* older single-property store */ }
+  Object.keys(all).filter(k => k.indexOf('PLAN_') === 0).forEach(k => {
+    try { plans[k.slice(5)] = JSON.parse(all[k]); } catch (err) { /* skip a damaged entry */ }
+  });
+  return plans;
 }
 
 function savePlans_(plans) {
-  // keep the five newest runs so the property stays small
-  const keep = {};
-  Object.keys(plans).sort().slice(-5).forEach(d => { keep[d] = plans[d]; });
-  PROPS.setProperty('PLANS', JSON.stringify(keep));
+  const dates = Object.keys(plans).sort();
+  const keep = dates.slice(-6); // six runs is about three months of history
+  dates.forEach(d => {
+    if (keep.indexOf(d) >= 0) PROPS.setProperty('PLAN_' + d, JSON.stringify(plans[d]));
+    else PROPS.deleteProperty('PLAN_' + d);
+  });
+  PROPS.deleteProperty('PLANS');
+  changed_();
 }
 
 /** The photographer built a route: remember every lot in it, so the team page knows the full list before photos exist. */
 function plan_(req) {
   const plans = plans_();
+  const old = plans[req.date] || {};
   plans[req.date] = {
     community: req.community,
     lots: (req.lots || []).map(l => [String(l.lot), String(l.agent)]),
-    done: !!(plans[req.date] && plans[req.date].done),
+    stages: old.stages || {},
+    done: !!old.done,
   };
   savePlans_(plans);
   return {};
+}
+
+// ---------- cached team page ----------
+
+/** Anything the team page shows has changed: the next visit rebuilds it instead of using the cached copy. */
+function changed_() {
+  PROPS.setProperty('VIEW_VER', String(Number(PROPS.getProperty('VIEW_VER') || 0) + 1));
 }
 
 // ---------- Drive folders ----------
@@ -225,6 +250,7 @@ function upload_(req) {
   const blob = Utilities.newBlob(Utilities.base64Decode(req.data), req.mime || 'image/jpeg', req.name);
   const id = folder.createFile(blob).getId();
   indexFile_(folder, id, req.name);
+  changed_();
   return { id: id };
 }
 
@@ -240,6 +266,32 @@ function note_(req) {
   } finally {
     lock.releaseLock();
   }
+  // remember the stage, so the next run can show who moved up
+  const plans = plans_();
+  const plan = plans[req.date] || { community: req.community, lots: [], stages: {}, done: false };
+  plan.stages = plan.stages || {};
+  if (req.stage) plan.stages[String(req.lot)] = req.stage;
+  plans[req.date] = plan;
+  savePlans_(plans);
+  return {};
+}
+
+/** Remove one photo the photographer took by mistake. */
+function deletePhoto_(req) {
+  const folder = findLot_(req.community, req.date, req.agent, req.lot);
+  if (folder) {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      const meta = readMeta_(folder);
+      meta.files = (meta.files || []).filter(f => f.id !== req.id);
+      folder.setDescription(JSON.stringify(meta));
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  try { DriveApp.getFileById(req.id).setTrashed(true); } catch (err) { /* already gone */ }
+  changed_();
   return {};
 }
 
@@ -314,6 +366,18 @@ function agentView_(req) {
 // ---------- team page ----------
 
 function teamView_(req) {
+  // the page is rebuilt only after something changed; repeat visits come from the cache
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'team|' + (PROPS.getProperty('VIEW_VER') || '0') + '|' + (req.date || '');
+  const hit = cache.get(cacheKey);
+  if (hit) return JSON.parse(hit);
+  const out = buildTeamView_(req);
+  const text = JSON.stringify(out);
+  if (text.length < 95000) cache.put(cacheKey, text, 600);
+  return out;
+}
+
+function buildTeamView_(req) {
   const runs = [];
   const communities = rootFolder_().getFolders();
   while (communities.hasNext()) {
@@ -332,6 +396,9 @@ function teamView_(req) {
   // by default show the last finished run; an unfinished one only when asked for or when it is all there is
   const run = runs.filter(r => r.date === req.date)[0] || runs.filter(r => !r.inProgress)[0] || runs[0];
   const planned = run && plans[run.date] ? plans[run.date].lots : [];
+  // the run before this one, for "moved up" and "new this run"
+  const before = run ? Object.keys(plans).filter(d => d < run.date).sort().pop() : null;
+  const prev = before ? plans[before] : null;
   let shot = 0;
   const agents = !run ? [] : agents_().map(a => {
     const f = child_(run.folder, a.name, false);
@@ -342,6 +409,10 @@ function teamView_(req) {
       lots.push({ lot: p[0], stage: '', note: '', sent: false, folderUrl: '', files: [], pending: true });
     });
     lots.sort((x, y) => Number(x.lot) - Number(y.lot));
+    if (prev) lots.forEach(l => {
+      l.prevStage = (prev.stages || {})[l.lot] || '';
+      l.isNew = !(prev.lots || []).some(p => p[0] === l.lot) && !l.prevStage;
+    });
     return { name: a.name, color: a.color, folderUrl: f ? f.getUrl() : '', lots: lots };
   });
   return {
@@ -372,6 +443,7 @@ function markSent_(req) {
   } finally {
     lock.releaseLock();
   }
+  changed_();
   return { sent: !!req.sent };
 }
 
@@ -436,7 +508,8 @@ function wipe_() {
     const dates = c.getFolders();
     while (dates.hasNext()) { dates.next().setTrashed(true); runs++; }
   }
-  PROPS.deleteProperty('PLANS');
+  Object.keys(PROPS.getProperties()).filter(k => k === 'PLANS' || k.indexOf('PLAN_') === 0).forEach(k => PROPS.deleteProperty(k));
+  changed_();
   return { runs: runs };
 }
 
@@ -452,7 +525,7 @@ function cleanup() {
     while (dates.hasNext()) {
       const d = dates.next();
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d.getName());
-      if (m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) < cutoff) d.setTrashed(true);
+      if (m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) < cutoff) { d.setTrashed(true); changed_(); }
     }
   }
 }
