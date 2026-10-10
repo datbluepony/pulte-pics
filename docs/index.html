@@ -4,151 +4,188 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Pulte Pics">
 <meta name="theme-color" content="#0b3c5d">
 <meta name="robots" content="noindex">
 <title>Pulte Pics</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.png">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <header>
-  <h1>Pulte Pics</h1>
-  <div class="sub" id="headsub">Verdana Village</div>
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#f5b800"/></svg>
+    <div>
+      <h1>Pulte Pics</h1>
+      <div class="sub" id="headsub">Verdana Village</div>
+    </div>
+  </div>
 </header>
 
 <main>
   <!-- Run: start, review, route -->
   <section id="view-run">
     <div id="run-start">
-      <h2>New photo run</h2>
+      <div class="intro">
+        <h2 class="title">New photo run</h2>
+        <p class="muted">Upload the agents' starred map. Every star becomes a lot on your route.</p>
+      </div>
       <div class="card">
-        <label for="run-date">Date</label>
-        <input type="date" id="run-date">
-        <label for="map-file">Agents' starred map (PDF)</label>
-        <input type="file" id="map-file" accept="application/pdf">
+        <div class="step"><span class="num-badge">1</span><div class="grow">
+          <label for="run-date">Photo run date</label>
+          <input type="date" id="run-date">
+        </div></div>
+        <div class="step"><span class="num-badge">2</span><div class="grow">
+          <label for="map-file">Agents' starred map</label>
+          <label class="drop" for="map-file">
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14 3v5h5M12 11v6m-3-3 3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span id="map-name">Choose the PDF</span>
+          </label>
+          <input type="file" id="map-file" accept="application/pdf" class="visually-hidden">
+        </div></div>
         <div class="stack">
           <button class="primary" id="btn-read">Read the map</button>
-          <button id="btn-manual">Skip the map and add lots by hand</button>
+          <button class="ghost" id="btn-manual">Skip the map and add lots by hand</button>
         </div>
-        <p class="muted" id="read-msg"></p>
+        <p class="muted center" id="read-msg"></p>
       </div>
     </div>
 
     <div id="run-review" class="hide">
-      <h2>Check the lots</h2>
-      <p class="muted" id="review-sum"></p>
+      <div class="intro">
+        <h2 class="title">Check the lots</h2>
+        <p class="muted" id="review-sum"></p>
+      </div>
       <div id="review-warn"></div>
       <div id="review-list"></div>
-      <div class="stack">
-        <button id="btn-add">Add a lot</button>
+      <div class="stack sticky-actions">
         <button class="primary" id="btn-route">Build my route</button>
-        <button id="btn-discard">Start over</button>
+        <div class="row">
+          <button class="grow" id="btn-add">Add a lot</button>
+          <button class="grow ghost" id="btn-discard">Start over</button>
+        </div>
       </div>
     </div>
 
     <div id="run-route" class="hide">
-      <h2 id="route-title">Route</h2>
-      <p class="muted" id="route-sum"></p>
-      <div class="stack"><button class="primary" id="btn-go">Go to next lot</button></div>
+      <div class="card summary">
+        <div class="row between">
+          <h2 class="title" id="route-title">Route</h2>
+          <span class="muted" id="route-pct"></span>
+        </div>
+        <div class="progress"><i id="route-bar"></i></div>
+        <div id="route-sum" class="agent-chips"></div>
+        <div class="stack"><button class="primary big" id="btn-go">Go to next lot</button></div>
+      </div>
       <div id="route-list"></div>
+      <h3 class="section">When you are done</h3>
       <div class="stack">
-        <button class="primary" id="btn-notify">Email agents their link</button>
+        <button class="primary" id="btn-notify">Email agents: photos are complete</button>
         <button id="btn-reroute">Re-plan the rest from where I am</button>
-        <button id="btn-edit">Edit the lot list</button>
-        <button id="btn-new">Finish and start a new run</button>
+        <div class="row">
+          <button class="grow" id="btn-edit">Edit the lot list</button>
+          <button class="grow ghost" id="btn-new">Finish run</button>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- One lot: find it, then shoot it -->
   <section id="view-lot" class="hide">
-    <button class="small" id="btn-back">&larr; Route</button>
-    <div class="agent-band card" id="lot-band">
+    <button class="back" id="btn-back">&larr; Route</button>
+    <div class="card lot-hero" id="lot-band">
       <div>
-        <div id="lot-agent"></div>
-        <div class="big-lot" id="lot-num"></div>
+        <div class="agent-tag"><span class="dot" id="lot-dot"></span><span id="lot-agent"></span></div>
+        <div class="big-lot"><small>Lot</small><span id="lot-num"></span></div>
       </div>
-      <div id="lot-count" style="text-align:right"></div>
+      <div id="lot-count" class="lot-count"></div>
     </div>
 
     <div id="lot-find">
       <div class="card compass">
-        <svg id="arrow" viewBox="0 0 100 100" width="120" height="120" aria-hidden="true">
-          <circle cx="50" cy="50" r="47" fill="#fff" stroke="#14202b" stroke-width="3"/>
-          <path d="M50 10 L72 68 L50 56 L28 68 Z" fill="#0b3c5d"/>
+        <svg id="arrow" viewBox="0 0 100 100" width="108" height="108" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" fill="#f3f6f9" stroke="#d9e1e8" stroke-width="2"/>
+          <path d="M50 12 L71 70 L50 58 L29 70 Z" fill="#0b3c5d"/>
         </svg>
         <div class="grow">
           <div id="find-dist" class="dist">Finding you...</div>
           <div id="find-hint" class="muted"></div>
-          <button class="small" id="btn-compass" style="margin-top:6px">Turn on compass</button>
+          <button class="small" id="btn-compass">Turn on compass</button>
         </div>
       </div>
       <div id="mini"><svg id="mini-path" class="routeline"></svg><div id="mini-here" class="hide"></div><div id="mini-target"></div><div id="mini-me" class="hide"><i></i></div></div>
       <div class="stack">
-        <button class="good" id="btn-here">I'm here: take photos</button>
-        <button id="btn-skip-find">Skip the camera, go to notes</button>
+        <button class="good big" id="btn-here">I'm here: take photos</button>
+        <button class="ghost" id="btn-skip-find">Skip the camera, go to notes</button>
       </div>
     </div>
 
     <div id="lot-shoot" class="hide">
       <div class="row">
         <button class="primary grow" id="btn-cam">Take photos</button>
-        <label class="btn grow" style="margin:0;color:inherit;font-size:16px">Add from library
+        <label class="btn grow">Add from library
           <input type="file" id="lib" accept="image/*" multiple class="hide">
         </label>
       </div>
-      <p id="lot-photos-sum" class="muted"></p>
-      <div id="lot-photos"></div>
-      <h2>Stage</h2>
+      <div class="card">
+        <p id="lot-photos-sum" class="muted"></p>
+        <div id="lot-photos"></div>
+      </div>
+      <h3 class="section">Stage</h3>
       <div class="chips" id="stage-chips"></div>
       <label for="lot-extra">Anything to add (optional)</label>
-      <textarea id="lot-extra" rows="2"></textarea>
-      <div class="card muted" id="lot-preview"></div>
+      <textarea id="lot-extra" rows="2" placeholder="e.g. Pool cage going up"></textarea>
+      <div class="preview">
+        <div class="preview-label">Customer note</div>
+        <div id="lot-preview"></div>
+      </div>
       <div class="stack">
-        <button class="good" id="btn-done">Submit &rarr; next lot</button>
-        <button id="btn-refind">Back to finding this lot</button>
+        <button class="good big" id="btn-done">Submit &rarr; next lot</button>
+        <button class="ghost" id="btn-refind">Back to finding this lot</button>
       </div>
     </div>
   </section>
 
   <!-- Map -->
   <section id="view-map" class="hide">
-    <div class="row" style="margin-bottom:8px">
-      <button class="small" id="zoom-out">&minus;</button>
-      <button class="small" id="zoom-in">+</button>
-      <button class="small" id="zoom-next">Go to next lot</button>
-      <span class="muted">Tap a pin to open it</span>
+    <div class="map-tools">
+      <div class="seg">
+        <button id="zoom-out" aria-label="Zoom out">&minus;</button>
+        <button id="zoom-in" aria-label="Zoom in">+</button>
+      </div>
+      <button class="small" id="zoom-next">Next lot</button>
+      <span class="muted">Pinch to zoom · tap a pin</span>
     </div>
     <div id="mapwrap"><div id="mapinner"></div></div>
   </section>
 
   <!-- Settings -->
   <section id="view-settings" class="hide">
-    <h2>Connection</h2>
+    <h3 class="section">Connection</h3>
     <div class="card">
       <label for="set-url">Google web app URL</label>
       <input type="text" id="set-url" autocapitalize="off" autocorrect="off" placeholder="https://script.google.com/macros/s/.../exec">
       <label for="set-token">Owner token</label>
       <input type="password" id="set-token" autocapitalize="off" autocorrect="off">
-      <label for="set-expire">Delete photos after (days)</label>
-      <input type="number" id="set-expire" min="1" max="90">
-      <label for="set-next">Next photo run (shown to agents as a countdown)</label>
-      <input type="date" id="set-next">
+      <div class="row two">
+        <div class="grow"><label for="set-expire">Keep photos (days)</label><input type="number" id="set-expire" min="1" max="90"></div>
+        <div class="grow"><label for="set-next">Next photo run</label><input type="date" id="set-next"></div>
+      </div>
     </div>
-    <h2>Agents</h2>
+    <h3 class="section">Agents</h3>
     <div id="agent-list"></div>
     <div class="stack">
-      <button id="btn-add-agent">Add an agent</button>
+      <button class="ghost" id="btn-add-agent">+ Add an agent</button>
       <button class="primary" id="btn-save">Save and connect</button>
     </div>
-    <p class="muted" id="set-msg"></p>
-    <h2>Delivery check</h2>
-    <div class="card muted" id="diag"></div>
-    <h2>Start fresh</h2>
-    <div class="stack"><button id="btn-wipe" style="color:#c0392b">Wipe all photos and runs</button></div>
+    <p class="muted center" id="set-msg"></p>
     <div id="portal-links"></div>
+    <h3 class="section">Delivery check</h3>
+    <div class="card diag" id="diag"></div>
+    <h3 class="section">Start fresh</h3>
+    <div class="stack"><button class="danger" id="btn-wipe">Wipe all photos and runs</button></div>
   </section>
 </main>
 
@@ -168,14 +205,14 @@
 <nav>
   <div id="status">Not connected yet. Open Settings.</div>
   <div class="tabs">
-    <button data-tab="run" class="on">Route</button>
-    <button data-tab="map">Map</button>
-    <button data-tab="settings">Settings</button>
+    <button data-tab="run" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h2m4 0h10M4 12h2m4 0h10M4 18h2m4 0h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Route</button>
+    <button data-tab="map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.4" fill="currentColor"/></svg>Map</button>
+    <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.8v2.4m0 13.6v2.4M2.8 12h2.4m13.6 0h2.4M5.5 5.5l1.7 1.7m9.6 9.6 1.7 1.7M5.5 18.5l1.7-1.7m9.6-9.6 1.7-1.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Settings</button>
   </div>
 </nav>
 
-<script src="route.js?v=13"></script>
-<script src="mapread.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="route.js?v=15"></script>
+<script src="mapread.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

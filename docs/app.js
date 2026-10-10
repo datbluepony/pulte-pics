@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 13; // bump with docs/version.txt on every release
+const VERSION = 15; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;      // closer than this counts as being at the lot
@@ -55,6 +55,7 @@ function saveRun() {
 }
 const agentColor = name => (agents.find(a => a.name === name) || {}).color || '#cccccc';
 const lotOf = n => run.lots.find(l => l.lot === n);
+const niceDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 
 async function api(action, body) {
@@ -226,7 +227,7 @@ function renderRun() {
   $('#run-start').classList.toggle('hide', phase !== 'start');
   $('#run-review').classList.toggle('hide', phase !== 'review');
   $('#run-route').classList.toggle('hide', phase !== 'route');
-  $('#headsub').textContent = COMMUNITY + (run ? ' · ' + run.date : '');
+  $('#headsub').textContent = COMMUNITY + (run ? ' · ' + niceDate(run.date) : '');
   if (phase === 'start') $('#run-date').value = $('#run-date').value || today();
   if (phase === 'review') renderReview();
   if (phase === 'route') renderRoute();
@@ -241,6 +242,11 @@ function newRun(lots, warnings) {
 const blankLot = (lot, agent) => ({ lot: lot, agent: agent || '', flag: '', stage: '', extra: '', count: 0, sent: 0, done: false });
 
 $('#btn-manual').addEventListener('click', () => newRun([]));
+$('#map-file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  $('#map-name').textContent = f ? f.name : 'Choose the PDF';
+  document.querySelector('.drop').classList.toggle('has', !!f);
+});
 
 $('#btn-read').addEventListener('click', async () => {
   const file = $('#map-file').files[0];
@@ -280,27 +286,26 @@ function renderReview() {
   const bad = run.lots.filter((l, i) => problems(l, i).length || l.flag).length;
   $('#review-sum').textContent = run.lots.length + ' lots: ' + agents.map(a => a.name + ' ' + run.lots.filter(l => l.agent === a.name).length).join(', ') + '. ' +
     (bad ? bad + ' need a look, shown first.' : 'Every lot number is on the master map.');
-  $('#review-warn').innerHTML = (run.warnings || []).map(w => `<div class="card flag">${esc(w)}</div>`).join('');
+  $('#review-warn').innerHTML = (run.warnings || []).map(w => `<div class="notice">${esc(w)}</div>`).join('');
   const rows = run.lots.map((l, i) => ({ l, i, p: problems(l, i) }));
   rows.sort((a, b) => ((b.p.length || b.l.flag ? 1 : 0) - (a.p.length || a.l.flag ? 1 : 0)) || (a.l.lot - b.l.lot));
   $('#review-list').innerHTML = rows.map(({ l, i, p }) => `
-    <div class="card">
-      <div class="row">
-        ${l.thumb ? `<img class="thumb" src="${l.thumb}" alt="Star on the agents' map">` : ''}
-        <div class="grow">
-          <div class="row">
-            <span class="dot" style="background:${esc(l.star || agentColor(l.agent))}"></span>
-            <input type="number" inputmode="numeric" style="width:96px" data-i="${i}" data-f="lot" value="${l.lot || ''}">
-          </div>
-          <select data-i="${i}" data-f="agent" style="margin-top:6px">
+    <div class="card review-card ${p.length || l.flag ? 'warn' : ''}">
+      ${l.thumb ? `<img class="thumb" src="${l.thumb}" alt="Star on the agents' map">` : '<div class="thumb"></div>'}
+      <div>
+        <div class="fields">
+          <input type="number" inputmode="numeric" aria-label="Lot number" data-i="${i}" data-f="lot" value="${l.lot || ''}" placeholder="Lot">
+          <select data-i="${i}" data-f="agent" aria-label="Agent" style="box-shadow: inset 5px 0 0 ${esc(l.star || agentColor(l.agent))}">
             <option value="">Agent?</option>
             ${agents.map(a => `<option ${a.name === l.agent ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
           </select>
         </div>
-        <button class="small" data-i="${i}" data-f="del">Remove</button>
+        ${p.concat(l.flag ? [l.flag] : []).map(t => `<div class="flag">${esc(t)}</div>`).join('')}
+        <div class="acts">
+          ${l.flag ? `<button class="small" data-i="${i}" data-f="ok">Looks right</button>` : ''}
+          <button class="small ghost" data-i="${i}" data-f="del">Remove</button>
+        </div>
       </div>
-      ${p.concat(l.flag ? [l.flag] : []).map(t => `<div class="flag">${esc(t)}</div>`).join('')}
-      ${l.flag ? `<button class="small" data-i="${i}" data-f="ok" style="margin-top:6px">Looks right</button>` : ''}
     </div>`).join('');
 }
 
@@ -421,18 +426,24 @@ function renderRoute() {
   if (!run || run.phase !== 'route') return;
   const done = run.lots.filter(l => l.done).length;
   const next = nextLot();
-  $('#route-title').textContent = done + ' of ' + run.lots.length + ' lots done';
-  $('#route-sum').textContent = agents.map(a => a.name + ' ' + run.lots.filter(l => l.agent === a.name).length).join(' · ');
+  const total = run.lots.length;
+  $('#route-title').textContent = !next ? 'All lots done' : done ? done + ' of ' + total + ' lots done' : total + ' lots to shoot';
+  $('#route-pct').textContent = Math.round(done / Math.max(1, total) * 100) + '%';
+  $('#route-bar').style.width = (done / Math.max(1, total) * 100) + '%';
+  $('#route-sum').innerHTML = agents.filter(a => run.lots.some(l => l.agent === a.name)).map(a => {
+    const mine = run.lots.filter(l => l.agent === a.name);
+    return `<span class="achip"><span class="dot" style="background:${esc(a.color)}"></span>${esc(a.name)} <b>${mine.filter(l => l.done).length}/${mine.length}</b></span>`;
+  }).join('');
   $('#btn-go').classList.toggle('hide', !next);
-  if (next) $('#btn-go').textContent = 'Go to next lot: ' + next;
+  if (next) $('#btn-go').textContent = 'Go to next lot · ' + next;
   $('#route-list').innerHTML = run.order.map((n, i) => {
     const l = lotOf(n);
+    const pill = l.done ? '<span class="pill done">Done</span>' : n === next ? '<span class="pill next">Next</span>' : l.count ? `<span class="pill part">${l.sent}/${l.count} sent</span>` : '';
     return `<div class="card lot-row ${l.done ? 'done' : ''} ${n === next ? 'next' : ''}" data-lot="${n}">
-      <span class="order">${i + 1}</span>
-      <span class="dot" style="background:${esc(agentColor(l.agent))}"></span>
+      <span class="order">${l.done ? '✓' : i + 1}</span>
       <span class="num">${n}</span>
-      <span class="grow muted">${esc(l.agent)}${l.count ? ' · ' + l.sent + '/' + l.count + ' sent' : ''}</span>
-      <span>${l.done ? '✓' : n === next ? 'Next' : ''}</span>
+      <span class="grow who"><span class="dot" style="background:${esc(agentColor(l.agent))}"></span>${esc(l.agent)}</span>
+      ${pill}
     </div>`;
   }).join('');
 }
@@ -588,16 +599,17 @@ function renderLot() {
   if (currentLot == null || !run) return;
   const l = lotOf(currentLot);
   if (!l) return;
-  $('#lot-band').style.background = agentColor(l.agent);
+  $('#lot-band').style.setProperty('--c', agentColor(l.agent));
+  $('#lot-dot').style.background = agentColor(l.agent);
   $('#lot-agent').textContent = l.agent;
   $('#lot-num').textContent = l.lot;
-  $('#lot-count').innerHTML = `<b>${l.count}</b> photos<br>${l.sent} sent`;
+  $('#lot-count').innerHTML = `<b>${l.count}</b>photo${l.count === 1 ? '' : 's'}${l.count ? ' · ' + l.sent + ' sent' : ''}`;
   $('#lot-find').classList.toggle('hide', lotStep !== 'find');
   $('#lot-shoot').classList.toggle('hide', lotStep !== 'shoot');
   if (lotStep === 'find') { renderFind(); return; }
   // a submitted lot keeps its note in sync if you change it, but the button says it is already in
   $('#btn-done').textContent = (l.done ? 'Already submitted ✓ ' : 'Submit ') + (run.order.some(n => n !== l.lot && !lotOf(n).done) ? '→ next lot' : '→ back to route');
-  $('#btn-done').className = l.done ? '' : 'good';
+  $('#btn-done').className = l.done ? 'big' : 'good big';
   const photos = l.photos || [];
   $('#lot-photos-sum').textContent = !l.count ? 'No photos yet.'
     : l.sent === l.count ? 'All ' + l.count + ' photos are in Google Drive.'
@@ -910,26 +922,26 @@ function renderSettings() {
   $('#set-next').value = settings.nextRun || '';
   $('#agent-list').innerHTML = agents.map((a, i) => `
     <div class="card">
-      <div class="row">
-        <input type="color" data-i="${i}" data-f="color" value="${esc(a.color)}" style="width:48px;height:44px;padding:2px">
-        <input type="text" class="grow" data-i="${i}" data-f="name" value="${esc(a.name)}" placeholder="Name as it appears on the map legend">
-        <button class="small" data-i="${i}" data-f="del">Remove</button>
+      <div class="agent-row">
+        <input type="color" data-i="${i}" data-f="color" value="${esc(a.color)}" aria-label="Star colour">
+        <input type="text" data-i="${i}" data-f="name" value="${esc(a.name)}" placeholder="Name on the map legend">
+        <button class="small ghost" data-i="${i}" data-f="del">Remove</button>
       </div>
-      <input type="email" data-i="${i}" data-f="email" value="${esc(a.email)}" placeholder="Email address" style="margin-top:8px">
+      <input type="email" data-i="${i}" data-f="email" value="${esc(a.email)}" placeholder="Email address" style="margin-top:10px">
     </div>`).join('');
   queueAll().then(items => {
     $('#diag').innerHTML = [
-      'App version ' + VERSION,
-      settings.url ? 'Google web app set' : 'No Google web app URL yet',
-      'Waiting to send: ' + items.filter(i => i.type === 'photo').length + ' photos, ' + items.filter(i => i.type === 'note').length + ' notes' + (memQueue.length ? ' (' + memQueue.length + ' held in memory only: keep the app open)' : ''),
-      'Last delivered: ' + (delivery.lastOk || 'nothing yet'),
-      'Last problem: ' + (delivery.lastError || 'none'),
-    ].map(esc).join('<br>');
+      ['App version', VERSION],
+      ['Google', settings.url ? 'connected' : 'not set up yet'],
+      ['Waiting to send', items.filter(i => i.type === 'photo').length + ' photos, ' + items.filter(i => i.type === 'note').length + ' notes' + (memQueue.length ? ' (' + memQueue.length + ' held in memory only: keep the app open)' : '')],
+      ['Last delivered', delivery.lastOk || 'nothing yet'],
+      ['Last problem', delivery.lastError || 'none'],
+    ].map(([k, v]) => '<b>' + esc(k) + ':</b> ' + esc(v)).join('<br>');
   });
   $('#portal-links').innerHTML = !settings.url ? ''
-    : settings.teamKey && settings.backend >= 3 ? '<h2>Team link</h2><p class="muted">One page for all the agents. They click their own name to see their lots. This is the link in the "photos are complete" email.</p>' +
-      `<div class="card row"><span class="grow"><b>Agents' page</b></span><button class="small" data-link="${esc(teamLink())}">Copy link</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
-    : '<div class="card flag">The Google script needs updating before the agents\' page works: paste the new Code.gs, then Deploy, Manage deployments, Edit, New version. Then press Save and connect again.</div>';
+    : settings.teamKey && settings.backend >= 3 ? '<h3 class="section">Agents\' page</h3>' +
+      `<div class="card team-link"><div class="grow"><b>One link for the whole team</b><div class="muted">They click their own name. It is the link in the "photos are complete" email.</div></div><button class="small" data-link="${esc(teamLink())}">Copy</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
+    : '<div class="notice">The Google script needs updating before the agents\' page works: paste the new Code.gs, then Deploy, Manage deployments, Edit, New version. Then press Save and connect again.</div>';
 }
 const teamLink = () => new URL('team.html', location.href).href + '?u=' + encodeURIComponent(settings.url) + '&k=' + settings.teamKey;
 
