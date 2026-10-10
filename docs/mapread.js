@@ -212,11 +212,16 @@
     return libs;
   }
 
+  /** Fill colour of a pasted star: the middle value of its pixels, leaving out the dark outline and white paper. */
   function sampleColor(ctx, x, y) {
-    const d = ctx.getImageData(Math.round(x * RENDER) - 3, Math.round(y * RENDER) - 3, 7, 7).data;
-    const sum = [0, 0, 0];
-    for (let i = 0; i < d.length; i += 4) { sum[0] += d[i]; sum[1] += d[i + 1]; sum[2] += d[i + 2]; }
-    return sum.map(v => v / (d.length / 4));
+    const d = ctx.getImageData(Math.round(x * RENDER) - 4, Math.round(y * RENDER) - 4, 9, 9).data;
+    const px = [];
+    for (let i = 0; i < d.length; i += 4) {
+      const hi = Math.max(d[i], d[i + 1], d[i + 2]), lo = Math.min(d[i], d[i + 1], d[i + 2]);
+      if (hi > 90 && lo < 246) px.push([d[i], d[i + 1], d[i + 2]]);
+    }
+    if (!px.length) return [0, 0, 0];
+    return [0, 1, 2].map(c => px.map(p => p[c]).sort((a, b) => a - b)[px.length >> 1]);
   }
 
   function thumb(canvas, x, y) {
@@ -275,13 +280,22 @@
     };
 
     const lots = [], warnings = [];
+    // a star drawn just past the edge of a map picture still belongs to it: the lot under it was cropped off
+    const OFF_EDGE = 60; // pt
+    const gap = (r, st) => Math.hypot(Math.max(r[0] - st.x, 0, st.x - r[2]), Math.max(r[1] - st.y, 0, st.y - r[3]));
     for (const pg of pages) {
       const free = pg.items.stars.filter(s => !s.legend);
+      free.forEach(st => {
+        const inside = pg.items.images.findIndex(r => gap(r, st) === 0);
+        if (inside >= 0) { st.img = inside; return; }
+        let best = -1;
+        pg.items.images.forEach((r, i) => { if (gap(r, st) <= OFF_EDGE && (best < 0 || gap(r, st) < gap(pg.items.images[best], st))) best = i; });
+        if (best >= 0) { st.img = best; st.outside = true; }
+      });
       for (let i = 0; i < pg.items.images.length; i++) {
         const r = pg.items.images[i];
-        const inside = free.filter(s => s.x >= r[0] && s.x <= r[2] && s.y >= r[1] && s.y <= r[3]);
-        inside.forEach(s => { s.used = true; });
-        if (!inside.length) continue;
+        const mine = free.filter(s => s.img === i);
+        if (!mine.length) continue;
         progress('Matching page ' + pg.n + ' of ' + pages.length + ' to the master map...');
         await new Promise(res => setTimeout(res, 30)); // let the progress text paint
         const x0 = Math.round(r[0] * RENDER), y0 = Math.round(r[1] * RENDER);
@@ -290,14 +304,16 @@
         const pos = m.locate(cropMat);
         cropMat.delete();
         if (!pos || pos.score < MIN_SCORE) {
-          warnings.push('Page ' + pg.n + ': one map picture could not be found on the master map, so its ' + inside.length + ' stars are missing. Add those lots by hand.');
+          warnings.push('Page ' + pg.n + ': one map picture could not be found on the master map, so its ' + mine.length + ' stars are missing. Add those lots by hand.');
           continue;
         }
-        inside.forEach(s => {
+        mine.forEach(s => {
+          // the same scale and offset carry on past the picture's edge
           const X = pos.x + (s.x * RENDER - x0) * pos.k, Y = pos.y + (s.y * RENDER - y0) * pos.k;
           const [a, b] = nearestLots(master, X, Y);
           const owner = whose(s.color);
           const why = [];
+          if (s.outside) why.push('Star sits just outside the map picture, where the lot number is cut off. Lined up with the master map it lands on lot ' + a.lot);
           if (!owner) why.push(colorName(s.color) + ' star is not in the legend');
           else if (!owner.onFile) why.push(owner.name + ' is not in your agent list');
           if (b.d / a.d < CLOSE_RATIO) why.push('Star sits close to lot ' + b.lot + ' too');
@@ -306,9 +322,9 @@
           lots.push({ lot: a.lot, agent: owner && owner.onFile ? owner.name : '', color: hex(s.color), flag: why.join('. '), thumb: thumb(pg.canvas, s.x, s.y) });
         });
       }
-      free.filter(s => !s.used).forEach(s => {
+      free.filter(s => s.img == null).forEach(s => {
         const owner = whose(s.color);
-        warnings.push('Page ' + pg.n + ': one star' + (owner ? ' for ' + owner.name : '') + ' sits outside the map picture, so it has no lot. Ask the agent which lot it is.');
+        warnings.push('Page ' + pg.n + ': one star' + (owner ? ' for ' + owner.name : '') + ' is too far from any map picture to place. Ask the agent which lot it is.');
       });
     }
     m.free();
