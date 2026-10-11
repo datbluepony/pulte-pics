@@ -50,6 +50,18 @@ h1 { font: 600 clamp(40px, 6vw, 68px)/1.02 var(--display); letter-spacing: -.025
 .phone { background: #02070b; padding: 8px; border-radius: 34px; box-shadow: 0 30px 70px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .08); }
 .phone img { border-radius: 27px; width: 100%; aspect-ratio: 428 / 926; object-fit: cover; object-position: top; }
 
+/* ---------- header art: the aerial map, the real street network glowing gold over it, and light moving along the streets ---------- */
+.mast::before, .mast::after, #gate::before, #gate::after { content: none !important; }
+.art { position: absolute; inset: -24px; animation: drift 38s ease-in-out infinite alternate; pointer-events: none; }
+.art i { position: absolute; inset: 0; background: center 40% / cover no-repeat; }
+.art .photo { background-image: url(map.jpg); opacity: .62; filter: saturate(.8); }
+.art .shade { background: linear-gradient(180deg, rgba(7, 26, 42, .5) 0%, rgba(7, 26, 42, .7) 55%, rgba(7, 26, 42, .97) 100%), linear-gradient(90deg, rgba(7, 26, 42, .62), rgba(7, 26, 42, 0) 62%), radial-gradient(900px 340px at 18% 0%, rgba(184, 145, 58, .16), transparent 70%); }
+.art .streets { background-image: url(streets.png); opacity: .6; mix-blend-mode: screen; -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, .18), rgba(0, 0, 0, .9) 60%); mask-image: linear-gradient(90deg, rgba(0, 0, 0, .18), rgba(0, 0, 0, .9) 60%); }
+.art .sweep { background: linear-gradient(105deg, transparent 38%, rgba(255, 236, 190, .85) 50%, transparent 62%) 0 0 / 260% 100% no-repeat; -webkit-mask: url(streets.png) center 40% / cover no-repeat; mask: url(streets.png) center 40% / cover no-repeat; mix-blend-mode: screen; animation: sweep-streets 9s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes sweep-streets { from { background-position: 140% 0; } to { background-position: -40% 0; } }
+@keyframes drift { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.12) translate(-2%, -1.5%); } }
+@media (prefers-reduced-motion: reduce) { .art, .art .sweep { animation: none !important; } .art .sweep { display: none; } }
+
 /* numbers */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: -34px; position: relative; z-index: 2; }
 .stat { background: var(--white); border: 1px solid var(--line); border-radius: 20px; padding: 20px; box-shadow: var(--shadow); }
@@ -112,7 +124,7 @@ h2 { font: 600 clamp(28px, 3.6vw, 40px)/1.12 var(--display); letter-spacing: -.0
 </style>
 </head>
 <body>
-<div class="mast"><div class="wrap">
+<div class="mast"><div class="art" aria-hidden="true"><i class="photo"></i><i class="shade"></i><i class="streets"></i><i class="sweep"></i></div><div class="wrap">
   <div class="top">
     <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg><div>Construction Update Photos<small>Behind the photos</small></div></div>
     <a class="back" id="back" href="team.html">&larr; Back to my photos</a>
