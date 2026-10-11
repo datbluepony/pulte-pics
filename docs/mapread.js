@@ -73,7 +73,7 @@
         const w = r[2] - r[0], h = r[3] - r[1];
         if (w >= IMAGE_MIN && h >= IMAGE_MIN) images.push(r);
         else if (w >= STAR_MIN && h >= STAR_MIN && w <= STAR_MAX && h <= STAR_MAX) {
-          stars.push({ x: (r[0] + r[2]) / 2, y: (r[1] + r[3]) / 2, color: null }); // pasted star: colour is sampled from the render
+          stars.push({ x: (r[0] + r[2]) / 2, y: (r[1] + r[3]) / 2, color: null }); // pasted star: color is sampled from the render
         }
       }
     }
@@ -112,7 +112,7 @@
     if (b > r + 40 && b >= g) return 'Blue';
     if (r > 200 && b > 180 && g < r) return 'Pink';
     if (r > g + 60 && r > b + 60) return g > 120 ? 'Orange' : 'Red';
-    return 'Unlisted colour';
+    return 'Unlisted color';
   }
 
   // ---------- OpenCV matching ----------
@@ -212,7 +212,7 @@
     return libs;
   }
 
-  /** Fill colour of a pasted star: the middle value of its pixels, leaving out the dark outline and white paper. */
+  /** Fill color of a pasted star: the middle value of its pixels, leaving out the dark outline and white paper. */
   function sampleColor(ctx, x, y) {
     const d = ctx.getImageData(Math.round(x * RENDER) - 4, Math.round(y * RENDER) - 4, 9, 9).data;
     const px = [];
@@ -267,7 +267,7 @@
       pages.push({ n: n, items: items, canvas: canvas, ctx: ctx });
     }
 
-    // legend colours first, then the colours saved for each agent
+    // legend colors first, then the colors saved for each agent
     const palette = [];
     known.forEach(e => {
       const a = agents.find(g => g.name.toLowerCase() === e.name.toLowerCase());

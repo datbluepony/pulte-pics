@@ -270,7 +270,7 @@ $('#btn-read').addEventListener('click', async () => {
   $('#btn-read').disabled = true;
   try {
     const out = await MapRead.readMap(file, master, agents, text => { msg.textContent = text; });
-    // the legend on the map is the authority on each agent's star colour
+    // the legend on the map is the authority on each agent's star color
     out.legend.forEach(e => {
       const a = agents.find(g => g.name.toLowerCase() === e.name.toLowerCase());
       if (a) a.color = e.color;
@@ -1056,7 +1056,7 @@ function renderMap(center) {
   }).join('');
   const me = myMapPoint();
   const meDot = me ? `<div class="me" style="left:${(me[0] / master.image.w * 100).toFixed(2)}%;top:${(me[1] / master.image.h * 100).toFixed(2)}%"></div>` : '';
-  // the drive along the roads: grey where you have been, blue for what is left
+  // the drive along the roads: gray where you have been, blue for what is left
   let line = '';
   if (run && run.phase === 'route' && run.paths) {
     const legs = run.order.filter(n => run.paths[n]);
@@ -1101,7 +1101,7 @@ function renderSettings() {
   $('#agent-list').innerHTML = agents.map((a, i) => `
     <div class="card">
       <div class="agent-row">
-        <input type="color" data-i="${i}" data-f="color" value="${esc(a.color)}" aria-label="Star colour">
+        <input type="color" data-i="${i}" data-f="color" value="${esc(a.color)}" aria-label="Star color">
         <input type="text" data-i="${i}" data-f="name" value="${esc(a.name)}" placeholder="Name on the map legend">
         <button class="small ghost" data-i="${i}" data-f="del">Remove</button>
       </div>

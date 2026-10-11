@@ -103,7 +103,7 @@
     let pts = [];
     for (let c = dst; c !== -1; c = prev[c]) pts.push([(c % w + 0.5) * g.cell, (Math.floor(c / w) + 0.5) * g.cell]);
     pts.reverse();
-    // grid paths are staircases: average neighbours to round them off, keeping the ends fixed
+    // grid paths are staircases: average neighbors to round them off, keeping the ends fixed
     for (let pass = 0; pass < 3; pass++) {
       pts = pts.map((p, i) => {
         if (i === 0 || i === pts.length - 1) return p;

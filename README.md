@@ -29,7 +29,7 @@ After changing `Code.gs`, use Deploy, Manage deployments, Edit, New version, so 
 
 ## How the map is read
 
-- `docs/mapread.js` takes the stars (position and colour) and the legend names straight from the PDF's own drawing data, then finds where each map screenshot sits on the master map by template matching, and gives each star the nearest lot label. Every lot number is checked against `docs/lots.json`.
+- `docs/mapread.js` takes the stars (position and color) and the legend names straight from the PDF's own drawing data, then finds where each map screenshot sits on the master map by template matching, and gives each star the nearest lot label. Every lot number is checked against `docs/lots.json`.
 - `docs/route.js` plans the visiting order over `docs/roads.png`, a grid of the community's streets and lakes, so the route follows roads and goes around water.
 - The map has to be a PDF like the agents send now, with the stars drawn on top of map screenshots. A plain screenshot cannot be read; add those lots by hand.
 

@@ -51,13 +51,13 @@ for n, pts in found.items():
         continue
     if len(pts) == 1:
         lots[n] = pts[0]
-# ambiguous labels: keep the candidate closest to a numeric neighbour
+# ambiguous labels: keep the candidate closest to a numeric neighbor
 for n, pts in found.items():
     if len(pts) > 1 and n >= 1:
         near = [lots[m] for m in (n - 1, n + 1) if m in lots]
         lots[n] = min(pts, key=lambda p: min([dist(p, q) for q in near] or [0]))
 
-# labels that sit far from both numeric neighbours are stray fragments
+# labels that sit far from both numeric neighbors are stray fragments
 stray = []
 for n in sorted(lots):
     a, b = lots.get(n - 1), lots.get(n + 1)
@@ -97,7 +97,7 @@ data = {
     'image': {'w': pix.width, 'h': pix.height},
     # lot number -> [x, y] in map image pixels
     'lots': {str(n): [round((lots[n][0] - clip.x0) * scale), round((lots[n][1] - clip.y0) * scale)] for n in sorted(lots)},
-    # lots whose label could not be read; position is estimated from neighbours
+    # lots whose label could not be read; position is estimated from neighbors
     'estimated': filled,
 }
 with open(out + r'\lots.json', 'w') as f:

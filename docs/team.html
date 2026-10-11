@@ -175,6 +175,34 @@ label.tick input { width: 18px; height: 18px; accent-color: var(--good); margin:
   .story-phones { height: 170px; }
   .story-phones img { width: 116px; }
 }
+/* ---------- finish: texture, loading, motion ---------- */
+/* a fine paper grain over the porcelain background */
+body { background-color: var(--porcelain); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .06 0 0 0 0 .11 0 0 0 0 .16 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.09'/%3E%3C/svg%3E"); }
+/* the aerial map drifts slowly behind the header */
+.mast::before { animation: drift 38s ease-in-out infinite alternate; }
+@keyframes drift { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.12) translate(-2%, -1.5%); } }
+/* thin gold bar across the top while photos load */
+#loadbar { position: fixed; left: 0; right: 0; top: 0; height: 3px; z-index: 60; overflow: hidden; pointer-events: none; }
+#loadbar i { position: absolute; top: 0; bottom: 0; width: 35%; background: linear-gradient(90deg, transparent, var(--gold), #e9cd8a, transparent); animation: sweep 1.1s ease-in-out infinite; }
+@keyframes sweep { from { left: -35%; } to { left: 100%; } }
+/* placeholder cards in the shape of the real ones */
+.skeleton { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 20px; margin-top: 46px; }
+.skeleton div { height: 330px; border-radius: 24px; background: linear-gradient(100deg, #ffffff 30%, #f1f4f7 50%, #ffffff 70%) 0 0 / 300% 100%; border: 1px solid var(--line); box-shadow: var(--shadow); animation: shimmer 1.3s linear infinite; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* cards rise in one after another */
+.rise { animation: rise .6s cubic-bezier(.2, .75, .2, 1) both; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+/* photos fade in as they arrive, over a soft shimmer */
+.cover, .strip button { background: linear-gradient(100deg, #e6ebf0 30%, #f3f6f8 50%, #e6ebf0 70%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
+.cover img, .strip img { opacity: 0; transition: opacity .5s ease, transform .5s; }
+.cover img.in, .strip img.in { opacity: 1; }
+.lot:hover { box-shadow: 0 2px 4px rgba(15, 29, 42, .05), 0 18px 40px rgba(15, 29, 42, .1); }
+.lot { transition: box-shadow .25s; }
+@media (prefers-reduced-motion: reduce) {
+  .mast::before, #loadbar i, .skeleton div, .rise, .cover, .strip button { animation: none !important; }
+  .cover img, .strip img { opacity: 1; }
+}
+
 footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- photo viewer ---------- */
@@ -217,6 +245,7 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 </style>
 </head>
 <body>
+<div id="loadbar" class="hide" aria-hidden="true"><i></i></div>
 <div class="mast"><div class="wrap">
   <div class="topbar">
     <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg>
@@ -232,7 +261,8 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 </div></div>
 
 <main><div class="wrap">
-  <div id="msg" class="card">Loading the latest photos...</div>
+  <div id="msg" class="card hide"></div>
+  <div class="skeleton" id="skeleton" aria-label="Loading the latest photos"><div></div><div></div><div></div></div>
   <div id="banner" class="card banner hide"><span class="ico">!</span><span id="banner-text"></span></div>
 
   <!-- landing: click your name -->
@@ -260,8 +290,8 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
   <a class="story" id="story" href="about.html">
     <div class="story-text">
       <span class="story-eyebrow">Behind the photos</span>
-      <b>Ever wonder how these show up so fast?</b>
-      <span>See the system Andrew built: it reads your starred map, plans the drive and delivers every house the same day.</span>
+      <b>How I get you these photos</b>
+      <span>I built this whole system myself, from reading your starred map to planning my route to getting every house on this page the same day.</span>
       <span class="story-go">See how it works <i>&rarr;</i></span>
     </div>
     <div class="story-phones" aria-hidden="true"><img src="about/find.jpg" alt=""><img src="about/star.jpg" alt=""></div>
@@ -306,13 +336,18 @@ async function copyText(text, btn) {
   catch (e) { btn.textContent = 'Select the text to copy'; }
 }
 
+const loading = on => {
+  $('#loadbar').classList.toggle('hide', !on);
+  if (!on) $('#skeleton').classList.add('hide');
+};
+
 async function load(date) {
-  $('#msg').classList.remove('hide');
-  $('#msg').textContent = 'Loading the latest photos...';
+  loading(true);
+  $('#msg').classList.add('hide');
   try {
     if (!/^https:\/\/script\.google\.com\//.test(backend || '') || !key) throw new Error('This link is incomplete. Ask your photographer for a new one.');
     view = await call('teamView', { date: date });
-    $('#msg').classList.add('hide');
+    loading(false);
     if (!view.run) { $('#community').textContent = 'Update Photos'; $('#msg').classList.remove('hide'); $('#msg').textContent = 'No photos yet. They appear here as they are taken.'; return; }
     $('#community').textContent = view.run.community;
     $('#rundate').textContent = 'Photos taken ' + longDate(view.run.date);
@@ -337,6 +372,8 @@ async function load(date) {
     const saved = remember.get();
     if (view.run.agents.some(a => a.name === saved)) open(saved); else home();
   } catch (e) {
+    loading(false);
+    $('#msg').classList.remove('hide');
     $('#home').classList.add('hide'); $('#agent').classList.add('hide'); $('#banner').classList.add('hide');
     $('#msg').textContent = /owner token|Unknown action/.test(e.message) ? 'This page is being set up. Please try again shortly.' : e.message;
   }
@@ -349,6 +386,47 @@ const stats = a => ({
   closing: a.lots.filter(l => STAGES.indexOf(l.stage) >= 7).length,
   moved: a.lots.filter(l => STAGES.indexOf(l.prevStage) >= 0 && STAGES.indexOf(l.stage) > STAGES.indexOf(l.prevStage)).length,
 });
+
+let quiet = false; // true while the page refreshes itself: no entrance motion
+const motionOK = () => !quiet && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+/** Count a number up from zero. */
+function countUp(el, to) {
+  if (!motionOK() || !to) return;
+  const start = performance.now(), dur = 700;
+  const tick = now => {
+    const t = Math.min(1, (now - start) / dur);
+    el.firstChild.nodeValue = Math.round(to * (1 - Math.pow(1 - t, 3)));
+    if (t < 1) requestAnimationFrame(tick);
+  };
+  el.firstChild.nodeValue = '0';
+  requestAnimationFrame(tick);
+}
+
+/** Fill the progress rings from empty to their value. */
+function fillRings(root) {
+  if (!motionOK()) return;
+  root.querySelectorAll('.ring .fill').forEach(c => {
+    const to = c.getAttribute('stroke-dashoffset');
+    c.style.transition = 'none';
+    c.setAttribute('stroke-dashoffset', c.getAttribute('stroke-dasharray'));
+    requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'stroke-dashoffset 1s cubic-bezier(.2, .75, .2, 1) .25s'; c.setAttribute('stroke-dashoffset', to); }));
+  });
+}
+
+/** Stagger the entrance of a set of cards. */
+function rise(nodes) {
+  if (!motionOK()) return;
+  Array.from(nodes).slice(0, 8).forEach((n, i) => { n.style.setProperty('--i', i); n.classList.remove('rise'); void n.offsetWidth; n.classList.add('rise'); });
+}
+
+/** Photos fade in once they have loaded. */
+function revealPhotos(root) {
+  root.querySelectorAll('.cover img, .strip img').forEach(img => {
+    const show = () => { img.classList.add('in'); img.parentElement.style.animation = 'none'; };
+    if (img.complete && img.naturalWidth) show(); else { img.addEventListener('load', show, { once: true }); img.addEventListener('error', () => { img.parentElement.style.animation = 'none'; }, { once: true }); }
+  });
+}
 
 function ring(pct, label) {
   const r = 38, c = 2 * Math.PI * r;
@@ -374,6 +452,10 @@ function home() {
       <div class="go">Open my lots<i>&rarr;</i></div>
     </button>`;
   }).join('');
+  rise($('#people').children);
+  fillRings($('#people'));
+  $('#people').querySelectorAll('.big').forEach(b => countUp(b, Number(b.firstChild.nodeValue)));
+  if (motionOK()) rise([$('#story')]);
 }
 
 function open(name) {
@@ -387,7 +469,7 @@ function open(name) {
   $('#who-dot').textContent = name.slice(0, 1).toUpperCase();
   $('#drive').href = a.folderUrl || '#';
   $('#drive').classList.toggle('hide', !a.folderUrl);
-  renderLots();
+  renderLots(true);
   window.scrollTo(0, 0);
 }
 
@@ -425,7 +507,7 @@ function lotCard(l) {
   </article>`;
 }
 
-function renderLots() {
+function renderLots(entrance) {
   const a = view.run.agents.find(g => g.name === me);
   const s = stats(a);
   const q = $('#find').value.trim();
@@ -442,18 +524,24 @@ function renderLots() {
     (ready.map(lotCard).join('') +
     (coming.length ? `<div class="label">Photos coming</div><div class="coming">${coming.map(l => `<div><b>Lot ${esc(l.lot)}</b><span>Not photographed yet</span></div>`).join('')}</div>` : '')) ||
     '<div class="card" style="padding:22px;margin-top:18px">No lots match.</div>';
+  revealPhotos($('#lots'));
+  if (entrance) {
+    rise($('#tiles').children);
+    rise($('#lots').querySelectorAll('article'));
+    $('#tiles').querySelectorAll('.tile b').forEach(b => countUp(b, Number(b.firstChild.nodeValue)));
+  }
 }
 
 $('#story').href = 'about.html' + location.search; // keep the team link when coming back
 $('#people').addEventListener('click', e => { const b = e.target.closest('[data-name]'); if (b) open(b.dataset.name); });
 $('#back').addEventListener('click', () => { remember.set(''); home(); window.scrollTo(0, 0); });
 $('#date').addEventListener('change', e => load(e.target.value));
-$('#find').addEventListener('input', renderLots);
+$('#find').addEventListener('input', () => renderLots());
 $('#filter').addEventListener('click', e => {
   if (!e.target.dataset.f) return;
   filter = e.target.dataset.f;
   document.querySelectorAll('#filter button').forEach(b => b.classList.toggle('on', b === e.target));
-  renderLots();
+  renderLots(true);
 });
 
 $('#lots').addEventListener('click', async e => {
@@ -515,7 +603,8 @@ async function refresh() {
     const fresh = await call('teamView', { date: view.run.date });
     if (!fresh.run || JSON.stringify(fresh.run) === JSON.stringify(view.run)) return;
     view = fresh;
-    if (me) renderLots(); else home();
+    quiet = true;
+    try { if (me) renderLots(); else home(); } finally { quiet = false; }
   } catch (e) { /* try again next time */ }
 }
 setInterval(refresh, 60000);
