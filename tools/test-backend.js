@@ -69,7 +69,7 @@ const jpg = Buffer.from('fake-jpeg').toString('base64');
 
 // connect with three agents
 let r = own('saveAgents', { agents: [{ name: 'Justin', color: '#46b1e1', email: 'j@x' }, { name: 'Gita', color: '#f2cfee', email: '' }, { name: 'Derek', color: '#ffff00', email: 'd@x' }], expireDays: 13, nextRun: '2026-10-25' });
-assert(r.ok && r.version >= 9 && r.teamKey, 'saveAgents');
+assert(r.ok && r.version >= 10 && r.teamKey, 'saveAgents');
 const key = r.teamKey;
 const team = (action, b) => post(Object.assign({ action, key }, b));
 assert.strictEqual(post({ action: 'ping', token: 'wrong' }).ok, false, 'wrong token rejected');
@@ -199,6 +199,12 @@ const stranger = ctx.DriveApp.createFolder('Andrew personal').createFile({ name:
 assert(!team('getPhoto', { id: stranger.id }).ok, 'agents cannot read files outside Pulte Pics');
 assert(!team('replacePhoto', { id: stranger.id, data: turned, mime: 'image/jpeg' }).ok && !stranger.trashed, 'or replace them');
 assert(!post({ action: 'replacePhoto', key: 'bad', id: agentRep.id, data: turned }).ok, 'bad team key refused');
+assert(/^ALREADY_REPLACED/.test(team('replacePhoto', { id: agentShot.id, data: turned, mime: 'image/jpeg' }).error), 'a repeat save is recognised, not applied twice');
+const del1 = team('trashPhoto', { id: agentRep.id });
+assert(del1.ok && files[agentRep.id].trashed, 'agent page can delete a photo (to trash)');
+const l2136 = team('teamView', { date: '2026-10-11' }).run.agents.find(a => a.name === 'Derek').lots.find(l => l.lot === '2136');
+assert(!l2136 || !l2136.files.some(f => f.id === agentRep.id), 'deleted photo gone from the page');
+assert(!team('trashPhoto', { id: stranger.id }).ok && !stranger.trashed, 'cannot delete files outside Pulte Pics');
 
 // team passcode: checked by the script, so the public page code cannot skip it
 r = own('saveAgents', { agents: ctx.agents_(), passcode: 'Verdana26' });

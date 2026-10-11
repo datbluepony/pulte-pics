@@ -269,6 +269,13 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 #viewer .stage img { transition: transform .3s cubic-bezier(.2, .75, .2, 1); }
 #viewer .v-note { position: absolute; left: 50%; top: 78px; transform: translateX(-50%); z-index: 3; padding: 10px 16px; border-radius: 99px; background: rgba(29, 127, 75, .92); color: #fff; font-weight: 700; font-size: 14px; white-space: nowrap; }
 #viewer .v-note.err { background: rgba(170, 50, 40, .95); }
+/* delete a photo straight from the lot card */
+.cover .del, .strip .del { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; background: rgba(7, 26, 42, .72); color: #fff; opacity: 0; transition: opacity .2s, background .2s; cursor: pointer; }
+.strip .del { top: 5px; right: 5px; width: 28px; height: 28px; font-size: 13px; }
+.cover:hover .del, .strip button:hover .del, .del:focus { opacity: 1; }
+.del:hover { background: #b3261e; }
+@media (hover: none) { .cover .del, .strip .del { opacity: .9; } }
+#viewer #v-trash:hover { background: #b3261e; border-color: #b3261e; }
 #viewer .film { display: flex; gap: 8px; justify-content: center; padding: 14px 20px 20px; overflow-x: auto; }
 #viewer .film button { padding: 0; width: 76px; height: 57px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; opacity: .55; flex: none; background: #1b2a37; }
 #viewer .film button.on { border-color: #e2c47f; opacity: 1; }
@@ -377,6 +384,7 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
       <button class="ghost" id="v-right" title="Turn right (R)" aria-label="Turn right">&#8635;</button>
       <button class="save hide" id="v-save">Save rotation</button>
     </span>
+    <button class="ghost" id="v-trash" title="Delete this photo">Delete</button>
     <a class="btn ghost" id="v-dl">Download full size</a><button class="ghost" id="v-close">Close</button></div>
   <div class="v-note hide" id="v-note"></div>
   <div class="stage"><img id="v-img" alt=""></div>
@@ -627,6 +635,7 @@ function lotCard(l) {
     <button class="cover" data-act="view" data-i="0" aria-label="View photos of lot ${esc(l.lot)}" title="Open, and turn any photo that is sideways">
       ${first ? `<img loading="lazy" alt="Lot ${esc(l.lot)}" src="${thumb(first.id, 900)}">` : ''}
       <span class="count">${l.files.length} photo${l.files.length === 1 ? '' : 's'}</span>
+      ${first ? `<span class="del" data-act="trash" data-i="0" role="button" tabindex="0" title="Delete this photo" aria-label="Delete this photo">&#128465;</span>` : ''}
     </button>
     <div class="body">
       <div class="lothead">
@@ -641,7 +650,7 @@ function lotCard(l) {
         <label class="tick"><input type="checkbox" data-act="sent" ${l.sent ? 'checked' : ''}> Sent to customer</label>
       </div>
     </div>
-    ${l.files.length > 1 ? `<div class="strip">${l.files.slice(1).map((f, i) => `<button data-act="view" data-i="${i + 1}" aria-label="Photo ${i + 2}"><img loading="lazy" alt="${esc(f.name)}" src="${thumb(f.id, 360)}"></button>`).join('')}</div>` : ''}
+    ${l.files.length > 1 ? `<div class="strip">${l.files.slice(1).map((f, i) => `<button data-act="view" data-i="${i + 1}" aria-label="Photo ${i + 2}"><img loading="lazy" alt="${esc(f.name)}" src="${thumb(f.id, 360)}"><span class="del" data-act="trash" data-i="${i + 1}" role="button" tabindex="0" title="Delete this photo" aria-label="Delete this photo">&#128465;</span></button>`).join('')}</div>` : ''}
   </article>`;
 }
 
@@ -690,6 +699,10 @@ $('#lots').addEventListener('click', async e => {
   const where = { community: view.run.community, date: view.run.date, agent: me, lot: lot.lot };
   if (t.dataset.act === 'copy') {
     copyText(lot.note, t);
+  } else if (t.dataset.act === 'trash') {
+    e.stopPropagation();
+    const f = lot.files[Number(t.dataset.i)];
+    if (f) trashPhoto(lot, f);
   } else if (t.dataset.act === 'view') {
     if (!lot.files.length) return;
     shown = { lot: lot.lot, files: lot.files, i: Number(t.dataset.i) };
@@ -725,14 +738,17 @@ function note(text, bad) {
 }
 
 /** Turn the photo's real pixels and swap it in Drive: the straightened copy is saved before the original goes to the trash. */
+let saving = false;
 async function saveTurn() {
   const f = shown.files[shown.i];
   const deg = turn;
-  if (!deg || !f) return;
+  if (!deg || !f || saving) return; // a second click or Enter while saving would send it twice
+  saving = true;
   $('#v-save').disabled = true;
-  $('#v-save').textContent = 'Saving...';
+  $('#v-save').textContent = 'Downloading...';
   try {
     const photo = await call('getPhoto', { id: f.id });
+    $('#v-save').textContent = 'Turning...';
     const img = new Image();
     img.src = 'data:' + (photo.mime || 'image/jpeg') + ';base64,' + photo.data;
     await img.decode();
@@ -745,6 +761,7 @@ async function saveTurn() {
     ctx.drawImage(img, -w / 2, -h / 2);
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
     const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(blob); });
+    $('#v-save').textContent = 'Saving...';
     const out = await call('replacePhoto', { id: f.id, data: data, mime: 'image/jpeg' });
     f.id = out.id; // the same photo, now straight, everywhere on the page
     setTurn(0);
@@ -753,10 +770,50 @@ async function saveTurn() {
     showPhoto();
     note('Saved. This photo now shows straight for everyone.');
   } catch (err) {
-    note('Could not save that (' + err.message + '). The photo was left exactly as it was.', true);
+    if (/ALREADY_REPLACED|not one of the update photos|no file/i.test(err.message)) {
+      // an earlier save already went through: show the latest version
+      setTurn(0);
+      await reloadLot(f);
+      note('This photo was already updated. Showing the latest version.');
+    } else {
+      note('Could not save that (' + err.message + '). The photo was left exactly as it was.', true);
+    }
   }
+  saving = false;
   $('#v-save').disabled = false;
   $('#v-save').textContent = 'Save rotation';
+}
+
+/** Fetch the page again and point the open viewer at the current copy of this lot's photos. */
+async function reloadLot(f) {
+  try {
+    const fresh = await call('teamView', { date: view.run.date });
+    if (!fresh.run) return;
+    view = fresh;
+    const lot = view.run.agents.find(g => g.name === me).lots.find(l => l.lot === shown.lot);
+    renderLots();
+    if (lot && lot.files.length) {
+      shown.files = lot.files;
+      shown.i = Math.max(0, Math.min(shown.i, lot.files.length - 1));
+      const same = lot.files.findIndex(x => x.name === f.name);
+      if (same >= 0) shown.i = same;
+      showPhoto();
+    } else closeViewer();
+  } catch (e) { /* keep what is on screen */ }
+}
+
+/** Delete one photo: it goes to Drive's trash (restorable for 30 days). */
+async function trashPhoto(lot, f) {
+  if (!confirm('Delete this photo from lot ' + lot.lot + '? It goes to Google Drive\'s trash and can be restored for 30 days.')) return false;
+  try {
+    await call('trashPhoto', { id: f.id });
+    lot.files = lot.files.filter(x => x.id !== f.id);
+    renderLots();
+    return true;
+  } catch (err) {
+    alert('Could not delete it (' + err.message + '). The photo was left as it was.');
+    return false;
+  }
 }
 
 function showPhoto() {
@@ -779,6 +836,17 @@ $('#v-left').addEventListener('click', () => setTurn(turn - 90));
 $('#v-right').addEventListener('click', () => setTurn(turn + 90));
 $('#v-flip').addEventListener('click', () => setTurn(turn + 180));
 $('#v-save').addEventListener('click', saveTurn);
+$('#v-trash').addEventListener('click', async () => {
+  const lot = view.run.agents.find(g => g.name === me).lots.find(l => l.lot === shown.lot);
+  const f = shown.files[shown.i];
+  if (!lot || !f || saving) return;
+  if (!(await trashPhoto(lot, f))) return;
+  shown.files = lot.files;
+  if (!shown.files.length) { closeViewer(); return; }
+  shown.i = Math.min(shown.i, shown.files.length - 1);
+  showPhoto();
+  note('Deleted. It is in Google Drive\'s trash for 30 days if you need it back.');
+});
 $('#v-film').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) { shown.i = Number(b.dataset.i); showPhoto(); } });
 $('#viewer').addEventListener('click', e => { if (e.target.classList.contains('stage')) closeViewer(); });
 document.addEventListener('keydown', e => {
@@ -787,7 +855,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') setTurn(turn + 90);
   if (e.key === 'l' || e.key === 'L') setTurn(turn - 90);
   if (e.key === 'f' || e.key === 'F') setTurn(turn + 180);
-  if (e.key === 'Enter' && turn) saveTurn();
+  if (e.key === 'Enter' && turn && !saving) saveTurn();
   if (e.key === 'ArrowLeft') step(-1);
   if (e.key === 'ArrowRight') step(1);
 });

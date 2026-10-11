@@ -48,13 +48,14 @@ function route_(req) {
   if (req.action === 'agentView') { checkPasscode_(req); return agentView_(req); }
   // the team page: anyone holding the team link
   const isOwner = !!req.token && req.token === PROPS.getProperty('OWNER_TOKEN');
-  if (!isOwner && ['teamView', 'markSent', 'zip', 'getPhoto', 'replacePhoto'].indexOf(req.action) >= 0) {
+  if (!isOwner && ['teamView', 'markSent', 'zip', 'getPhoto', 'replacePhoto', 'trashPhoto'].indexOf(req.action) >= 0) {
     if (!req.key || req.key !== teamKey_()) throw new Error('This link is not valid. Ask your photographer for the current one.');
     checkPasscode_(req);
     if (req.action === 'teamView') return teamView_(req);
     if (req.action === 'markSent') return markSent_(req);
     if (req.action === 'getPhoto') return getPhoto_(req);
     if (req.action === 'replacePhoto') return replacePhoto_(req);
+    if (req.action === 'trashPhoto') return trashPhoto_(req);
     return zip_(req);
   }
   if (!req.token || req.token !== PROPS.getProperty('OWNER_TOKEN')) throw new Error('Wrong owner token.');
@@ -71,6 +72,7 @@ function route_(req) {
     case 'teamView': return teamView_(req);
     case 'markSent': return markSent_(req);
     case 'zip': return zip_(req);
+    case 'trashPhoto': return trashPhoto_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
     default: throw new Error('Unknown action: ' + req.action);
@@ -110,7 +112,7 @@ function checkPasscode_(req) {
 
 function config_() {
   return {
-    version: 9,
+    version: 10,
     passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
@@ -387,7 +389,7 @@ function getPhoto_(req) {
  */
 function replacePhoto_(req) {
   const old = ourPhoto_(req.id);
-  if (old.isTrashed()) throw new Error('That photo was already replaced.');
+  if (old.isTrashed()) throw new Error('ALREADY_REPLACED: That photo was already updated.');
   const folder = old.getParents().next();
   const bytes = Utilities.base64Decode(req.data);
   if (bytes.length < 20000) throw new Error('The straightened photo looks incomplete, so the original was kept.');
@@ -399,6 +401,14 @@ function replacePhoto_(req) {
   while (zips.hasNext()) { const z = zips.next(); if (/\.zip$/i.test(z.getName())) z.setTrashed(true); }
   changed_();
   return { id: copy.getId() };
+}
+
+/** Remove an update photo from the agents' page. It goes to Drive's trash, so it can be restored for 30 days. */
+function trashPhoto_(req) {
+  const f = ourPhoto_(req.id);
+  f.setTrashed(true);
+  changed_();
+  return {};
 }
 
 /** Remove one photo the photographer took by mistake. */
