@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 20; // bump with docs/version.txt on every release
+const VERSION = 21; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -840,6 +840,7 @@ function setTilt(t) {
   const sideways = window.innerHeight > window.innerWidth;
   $('#camera').classList.toggle('tilt-l', sideways && tilt === 1);
   $('#camera').classList.toggle('tilt-r', sideways && tilt === -1);
+  $('#camera').dataset.tilt = tilt;
   showCamSize();
 }
 
@@ -894,6 +895,8 @@ async function openCamera() {
   if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().catch(() => 'denied');
   if (window.DeviceMotionEvent && DeviceMotionEvent.requestPermission) DeviceMotionEvent.requestPermission().catch(() => 'denied');
   sensed = false;
+  tilt = null;
+  setTilt(window.innerHeight > window.innerWidth ? 1 : 0); // photos are landscape: start with the controls sideways
   window.addEventListener('deviceorientation', onOrient);
   window.addEventListener('devicemotion', onMotion);
   $('#camera').classList.remove('hide');
@@ -948,6 +951,7 @@ $('#cam-flip').addEventListener('click', () => {
   $('#cam-flip').textContent = flip ? 'Flipped' : 'Flip';
 });
 video.addEventListener('resize', () => { if (stream) showCamSize(); });
+window.addEventListener('resize', () => { if (stream) { const t = tilt; tilt = null; setTilt(t); } });
 
 function closeCamera() {
   window.removeEventListener('deviceorientation', onOrient);

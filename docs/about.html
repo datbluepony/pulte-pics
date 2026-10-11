@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Behind the Photos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@500;600;700;800&display=swap">
+<style>
+/* Layout: one long story, night masthead, then alternating phone + text chapters that follow a photo run in order */
+:root {
+  --ink: #0f1d2a; --ink-2: #33475a; --muted: #6a7b8b; --line: #e3e8ee; --porcelain: #f2f4f7; --white: #ffffff;
+  --navy: #0b3c5d; --night: #071a2a; --gold: #b8913a; --gold-2: #e2c47f; --gold-soft: #f6efdc; --good: #1d7f4b;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --ui: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --shadow: 0 1px 2px rgba(15, 29, 42, .05), 0 18px 44px rgba(15, 29, 42, .12);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--porcelain); color: var(--ink); font: 500 16px/1.6 var(--ui); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+img { max-width: 100%; display: block; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 28px; }
+:focus-visible { outline: 3px solid rgba(184, 145, 58, .55); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* masthead */
+.mast { position: relative; color: #fff; background: var(--night); overflow: hidden; padding-block: 24px 64px; }
+.mast::before { content: ""; position: absolute; inset: -20px; background: url(map.jpg) center 35% / cover no-repeat; filter: saturate(.6) blur(1px); opacity: .45; }
+.mast::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7, 26, 42, .55), rgba(7, 26, 42, .9) 60%, rgba(7, 26, 42, 1)), radial-gradient(900px 380px at 80% 10%, rgba(184, 145, 58, .22), transparent 70%); }
+.mast .wrap { position: relative; z-index: 1; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 800; }
+.brand small { display: block; font-weight: 600; font-size: 12px; color: rgba(255, 255, 255, .62); letter-spacing: .06em; text-transform: uppercase; }
+.logo { width: 38px; height: 38px; }
+.back { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 99px; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .2); color: #fff; text-decoration: none; font-weight: 700; font-size: 14px; }
+.back:hover { background: rgba(255, 255, 255, .18); }
+.hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 40px; align-items: center; margin-top: 54px; }
+.eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: var(--gold-2); }
+h1 { font: 600 clamp(40px, 6vw, 68px)/1.02 var(--display); letter-spacing: -.025em; margin: 12px 0 18px; text-wrap: balance; }
+.lede { font-size: 18px; color: rgba(255, 255, 255, .8); max-width: 52ch; margin: 0; }
+.byline { margin-top: 22px; display: inline-flex; align-items: center; gap: 10px; font-weight: 700; color: rgba(255, 255, 255, .85); }
+.byline i { width: 34px; height: 34px; border-radius: 50%; background: var(--gold); color: var(--night); font: 600 16px/34px var(--display); text-align: center; font-style: normal; }
+.fan { position: relative; height: 470px; }
+.fan .phone { position: absolute; width: 210px; }
+.fan .phone:nth-child(1) { left: 2%; top: 46px; transform: rotate(-8deg); }
+.fan .phone:nth-child(2) { left: 31%; top: 0; z-index: 2; }
+.fan .phone:nth-child(3) { right: 2%; top: 46px; transform: rotate(8deg); }
+.phone { background: #02070b; padding: 8px; border-radius: 34px; box-shadow: 0 30px 70px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .08); }
+.phone img { border-radius: 27px; width: 100%; aspect-ratio: 428 / 926; object-fit: cover; object-position: top; }
+
+/* numbers */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: -34px; position: relative; z-index: 2; }
+.stat { background: var(--white); border: 1px solid var(--line); border-radius: 20px; padding: 20px; box-shadow: var(--shadow); }
+.stat b { display: block; font: 600 36px/1.05 var(--display); letter-spacing: -.02em; font-variant-numeric: lining-nums; }
+.stat span { font-size: 14px; color: var(--muted); font-weight: 600; }
+
+/* chapters */
+.chapters { display: grid; gap: 90px; margin-top: 90px; }
+.chapter { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 64px; align-items: center; }
+.chapter.flip { grid-template-columns: minmax(0, 1fr) 300px; }
+.chapter.flip .phone { order: 2; }
+.step { font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: var(--gold); }
+h2 { font: 600 clamp(28px, 3.6vw, 40px)/1.12 var(--display); letter-spacing: -.02em; margin: 10px 0 14px; text-wrap: balance; }
+.chapter p { color: var(--ink-2); max-width: 56ch; margin: 0 0 12px; }
+.points { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+.points li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; color: var(--ink-2); }
+.points li::before { content: ""; width: 22px; height: 22px; border-radius: 50%; margin-top: 2px; background: var(--gold-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23b8913a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6.5 5 9l5-6'/%3E%3C/svg%3E") no-repeat center; }
+
+/* your side */
+.yours { margin-top: 110px; }
+.yours h2 { text-align: center; }
+.yours .sub { text-align: center; color: var(--muted); max-width: 60ch; margin: 0 auto 30px; }
+.browser { border-radius: 18px; overflow: hidden; background: var(--white); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.browser .bar { display: flex; gap: 7px; padding: 12px 16px; background: #eef1f5; border-bottom: 1px solid var(--line); }
+.browser .bar i { width: 11px; height: 11px; border-radius: 50%; background: #cfd7df; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+
+/* under the hood */
+.hood { margin-top: 110px; background: var(--night); color: #fff; border-radius: 28px; padding: 48px; position: relative; overflow: hidden; }
+.hood::after { content: ""; position: absolute; inset: 0; background: radial-gradient(700px 300px at 0% 0%, rgba(184, 145, 58, .22), transparent 70%); pointer-events: none; }
+.hood h2 { margin-top: 6px; }
+.hood .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; position: relative; z-index: 1; }
+.hood .card { background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); border-radius: 18px; padding: 20px; }
+.hood .card b { display: block; font: 600 19px/1.25 var(--display); margin-bottom: 6px; color: var(--gold-2); }
+.hood .card span { color: rgba(255, 255, 255, .78); font-size: 15px; }
+
+.end { text-align: center; margin: 90px auto 80px; max-width: 640px; }
+.end h2 { margin-bottom: 18px; }
+.cta { display: inline-flex; align-items: center; gap: 10px; padding: 15px 26px; border-radius: 14px; background: var(--navy); color: #fff; text-decoration: none; font-weight: 800; box-shadow: 0 10px 26px rgba(11, 60, 93, .3); }
+.cta:hover { background: #0e4a73; }
+.note { font-size: 13px; color: var(--muted); margin-top: 18px; }
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; }
+  .fan { height: 400px; max-width: 520px; width: 100%; margin: 0 auto; }
+  .fan .phone { width: 172px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .chapter, .chapter.flip { grid-template-columns: 1fr; gap: 28px; }
+  .chapter .phone, .chapter.flip .phone { order: 0; max-width: 280px; margin: 0 auto; }
+  .duo { grid-template-columns: 1fr; }
+  .hood .grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .wrap { padding-inline: 16px; }
+  .fan { height: 330px; }
+  .fan .phone { width: 140px; }
+  .hood { padding: 30px 22px; }
+  .stat b { font-size: 30px; }
+}
+</style>
+</head>
+<body>
+<div class="mast"><div class="wrap">
+  <div class="top">
+    <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg><div>Construction Update Photos<small>Behind the photos</small></div></div>
+    <a class="back" id="back" href="team.html">&larr; Back to my photos</a>
+  </div>
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Verdana Village · How it works</div>
+      <h1>From your starred map to finished photos, the same day.</h1>
+      <p class="lede">Every other Sunday you star the lots you need. This is the system Andrew built to read that map, plan the drive, shoot every house and deliver full-resolution photos to you, sorted by lot.</p>
+      <div class="byline"><i>A</i>Designed and built by Andrew</div>
+    </div>
+    <div class="fan" aria-hidden="true">
+      <div class="phone"><img src="about/star.jpg" alt=""></div>
+      <div class="phone"><img src="about/find.jpg" alt=""></div>
+      <div class="phone"><img src="about/shoot.jpg" alt=""></div>
+    </div>
+  </div>
+</div></div>
+
+<main class="wrap">
+  <div class="stats">
+    <div class="stat"><b>2,400</b><span>lots on the master site map the app knows by heart</span></div>
+    <div class="stat"><b>~1 min</b><span>to read every star on your PDF</span></div>
+    <div class="stat"><b>Live</b><span>photos arrive while he walks to the next house</span></div>
+    <div class="stat"><b>13 days</b><span>to download before a run is cleared</span></div>
+  </div>
+
+  <div class="chapters">
+    <section class="chapter">
+      <div class="phone"><img src="about/star.jpg" alt="The app checking each starred lot against the master map"></div>
+      <div>
+        <div class="step">Step 1 · Your map</div>
+        <h2>Your stars become a shot list in about a minute.</h2>
+        <p>The app opens the PDF you send and finds every star: its exact position and its colour, which tells it whose lot it is. It lines each map screenshot up against the master site map and reads the lot number under the star.</p>
+        <ul class="points">
+          <li>Every lot number is checked against all 2,400 lots on the master map.</li>
+          <li>A star that sits between two lots, or just off the edge of a screenshot, is flagged for a second look.</li>
+          <li>Andrew sees a snapshot of each star beside the lot number before anything is final.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="chapter flip">
+      <div class="phone"><img src="about/map.jpg" alt="The route drawn along the community's streets"></div>
+      <div>
+        <div class="step">Step 2 · The route</div>
+        <h2>The fastest way through the community, on real streets.</h2>
+        <p>The route is planned over the actual road layout of Verdana Village, around the lakes and preserves, so the stops come in the order you would drive them. The site map is pinned to real GPS coordinates, so the app always knows where he is.</p>
+      </div>
+    </section>
+
+    <section class="chapter">
+      <div class="phone"><img src="about/find.jpg" alt="Live map and compass leading to the next lot"></div>
+      <div>
+        <div class="step">Step 3 · On site</div>
+        <h2>A live map walks him to each house.</h2>
+        <p>The next lot is circled on a live map with his position, the direction he is facing and the road path to it. When he arrives, the screen turns green.</p>
+        <ul class="points">
+          <li>A rapid camera saves a photo on every tap, always landscape.</li>
+          <li>For low light, the iPhone camera with Night mode is one tap away.</li>
+          <li>Pick the construction stage and the customer note writes itself.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="chapter flip">
+      <div class="phone"><img src="about/shoot.jpg" alt="Photos with green ticks once they reach Google Drive"></div>
+      <div>
+        <div class="step">Step 4 · Delivered</div>
+        <h2>Uploaded before he reaches the next house.</h2>
+        <p>Photos go up in the background at full resolution, two at a time, and each one gets a green tick once it is safely stored. When the last lot is in, you get an email that the run is complete.</p>
+      </div>
+    </section>
+  </div>
+
+  <section class="yours">
+    <div class="step" style="text-align:center">Your side</div>
+    <h2>Everything you need, sorted by lot.</h2>
+    <p class="sub">Your page shows every home you have in the run, its stage, a customer-ready note and the full-resolution photos. Mark each update sent and watch your ring fill up.</p>
+    <div class="duo">
+      <div class="browser"><div class="bar"><i></i><i></i><i></i></div><img src="about/team.jpg" alt="The team page with each agent's homes"></div>
+      <div class="browser"><div class="bar"><i></i><i></i><i></i></div><img src="about/lots.jpg" alt="An agent's lots with photos, stage and note"></div>
+    </div>
+  </section>
+
+  <section class="hood">
+    <div class="step">Under the hood</div>
+    <h2>Built from scratch for this community.</h2>
+    <div class="grid">
+      <div class="card"><b>Reads the map on the phone</b><span>Open-source image matching runs right on the iPhone, so your PDF never leaves the photographer's phone.</span></div>
+      <div class="card"><b>Pinned to the real world</b><span>The brochure site map was matched to the community's real street layout, so lot positions line up with GPS.</span></div>
+      <div class="card"><b>Every photo upright</b><span>Sideways shots are straightened before upload, so what you download is exactly what was framed.</span></div>
+      <div class="card"><b>Never loses a shot</b><span>Photos wait on the phone through dead spots and send themselves when signal returns.</span></div>
+      <div class="card"><b>Private by design</b><span>Photos live in a private Google Drive, shared only through your team link, and clear themselves after 13 days.</span></div>
+      <div class="card"><b>Always up to date</b><span>Your page refreshes on its own while a run is in progress, so new homes appear as they are photographed.</span></div>
+    </div>
+  </section>
+
+  <section class="end">
+    <h2>Questions or ideas?</h2>
+    <p style="color:var(--ink-2)">Andrew built this to make your Sunday updates effortless. If something would make it better for you and your customers, tell him.</p>
+    <a class="cta" id="back2" href="team.html">Back to my photos &rarr;</a>
+    <p class="note">Screens shown with sample photos.</p>
+  </section>
+</main>
+<script>
+// return to the same team page this visit came from
+document.querySelectorAll('#back, #back2').forEach(a => { a.href = 'team.html' + location.search; });
+</script>
+</body>
+</html>

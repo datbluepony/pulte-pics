@@ -11,7 +11,7 @@
 <title>Pulte Pics</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.png">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <header>
@@ -199,14 +199,16 @@
 <div id="camera" class="hide">
   <video id="cam-video" playsinline autoplay muted></video>
   <div id="cam-flash"></div>
-  <div id="cam-top"></div>
-  <button id="cam-torch" class="hide" aria-pressed="false">Light</button>
-  <button id="cam-flip" title="Use this if saved photos come out upside down">Flip</button>
-  <div id="cam-lenses"></div>
-  <div id="cam-bar">
-    <span id="cam-count">0</span>
-    <button id="cam-shutter" aria-label="Take a photo"></button>
-    <button id="cam-close">Done</button>
+  <div id="cam-ui">
+    <div id="cam-top"></div>
+    <button id="cam-torch" class="hide" aria-pressed="false">Light</button>
+    <button id="cam-flip" title="Use this if saved photos come out upside down">Flip</button>
+    <div id="cam-lenses"></div>
+    <div id="cam-bar">
+      <span id="cam-count">0</span>
+      <button id="cam-shutter" aria-label="Take a photo"></button>
+      <button id="cam-close">Done</button>
+    </div>
   </div>
 </div>
 
@@ -219,8 +221,8 @@
   </div>
 </nav>
 
-<script src="route.js?v=20"></script>
-<script src="mapread.js?v=20"></script>
-<script src="app.js?v=20"></script>
+<script src="route.js?v=21"></script>
+<script src="mapread.js?v=21"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

@@ -156,6 +156,25 @@ label.tick input { width: 18px; height: 18px; accent-color: var(--good); margin:
 .coming b { display: block; font: 600 22px/1.1 var(--display); }
 .coming span { font-size: 12px; font-weight: 700; color: var(--muted); }
 
+/* the way into the "how it works" page */
+.story { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: center; gap: 24px; margin-top: 46px; padding: 34px 38px 0; border-radius: 26px; overflow: hidden; text-decoration: none; color: #fff; background: radial-gradient(600px 260px at 100% 0%, rgba(184, 145, 58, .35), transparent 70%), linear-gradient(125deg, #061f33, var(--navy) 60%, #14608f); box-shadow: 0 20px 50px rgba(7, 26, 42, .3); transition: transform .25s, box-shadow .25s; }
+.story:hover { transform: translateY(-4px); box-shadow: 0 28px 64px rgba(7, 26, 42, .38); }
+.story-text { display: grid; gap: 10px; padding-bottom: 34px; }
+.story-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: #e2c47f; }
+.story b { font: 600 clamp(26px, 3.4vw, 36px)/1.1 var(--display); letter-spacing: -.02em; }
+.story-text > span:not(.story-eyebrow):not(.story-go) { color: rgba(255, 255, 255, .78); max-width: 52ch; }
+.story-go { display: inline-flex; align-items: center; gap: 10px; margin-top: 6px; justify-self: start; padding: 12px 20px; border-radius: 12px; background: #fff; color: var(--navy); font-weight: 800; }
+.story-go i { font-style: normal; transition: transform .2s; }
+.story:hover .story-go i { transform: translateX(4px); }
+.story-phones { position: relative; height: 230px; align-self: end; }
+.story-phones img { position: absolute; bottom: -40px; width: 140px; border-radius: 22px; border: 6px solid #02070b; box-shadow: 0 20px 40px rgba(0, 0, 0, .45); }
+.story-phones img:first-child { left: 18px; transform: rotate(-7deg); }
+.story-phones img:last-child { right: 18px; bottom: -60px; transform: rotate(6deg); }
+@media (max-width: 760px) {
+  .story { grid-template-columns: 1fr; padding: 26px 22px 0; }
+  .story-phones { height: 170px; }
+  .story-phones img { width: 116px; }
+}
 footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- photo viewer ---------- */
@@ -237,6 +256,16 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
     <div class="tiles" id="tiles"></div>
     <div id="lots"></div>
   </section>
+
+  <a class="story" id="story" href="about.html">
+    <div class="story-text">
+      <span class="story-eyebrow">Behind the photos</span>
+      <b>Ever wonder how these show up so fast?</b>
+      <span>See the system Andrew built: it reads your starred map, plans the drive and delivers every house the same day.</span>
+      <span class="story-go">See how it works <i>&rarr;</i></span>
+    </div>
+    <div class="story-phones" aria-hidden="true"><img src="about/find.jpg" alt=""><img src="about/star.jpg" alt=""></div>
+  </a>
 
   <footer><span>Full-resolution photos, sorted by lot.</span><span id="foot-run"></span></footer>
 </div></main>
@@ -415,6 +444,7 @@ function renderLots() {
     '<div class="card" style="padding:22px;margin-top:18px">No lots match.</div>';
 }
 
+$('#story').href = 'about.html' + location.search; // keep the team link when coming back
 $('#people').addEventListener('click', e => { const b = e.target.closest('[data-name]'); if (b) open(b.dataset.name); });
 $('#back').addEventListener('click', () => { remember.set(''); home(); window.scrollTo(0, 0); });
 $('#date').addEventListener('change', e => load(e.target.value));
