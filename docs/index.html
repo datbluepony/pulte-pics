@@ -11,7 +11,7 @@
 <title>Pulte Pics</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.png">
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 <header>
@@ -125,7 +125,13 @@
     <div id="lot-shoot" class="hide">
       <div class="row">
         <button class="primary grow" id="btn-cam">Take photos</button>
-        <label class="btn grow">Add from library
+        <label class="btn grow" title="The iPhone camera with Night mode and full 12 MP. Tap Use Photo after each shot.">Best quality
+          <input type="file" id="hq" accept="image/*" capture="environment" class="hide">
+        </label>
+      </div>
+      <div class="row quality-row">
+        <span class="muted grow">Low light? <b>Best quality</b> uses the iPhone camera with Night mode. Photos are not saved to your camera roll.</span>
+        <label class="btn small">Library
           <input type="file" id="lib" accept="image/*" multiple class="hide">
         </label>
       </div>
@@ -194,6 +200,7 @@
   <video id="cam-video" playsinline autoplay muted></video>
   <div id="cam-flash"></div>
   <div id="cam-top"></div>
+  <button id="cam-torch" class="hide" aria-pressed="false">Light</button>
   <button id="cam-flip" title="Use this if saved photos come out upside down">Flip</button>
   <div id="cam-lenses"></div>
   <div id="cam-bar">
@@ -212,8 +219,8 @@
   </div>
 </nav>
 
-<script src="route.js?v=19"></script>
-<script src="mapread.js?v=19"></script>
-<script src="app.js?v=19"></script>
+<script src="route.js?v=20"></script>
+<script src="mapread.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 19; // bump with docs/version.txt on every release
+const VERSION = 20; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -634,7 +634,7 @@ function renderLot() {
   $('#btn-done').className = l.done ? 'big' : 'good big';
   const photos = l.photos || [];
   $('#lot-photos-sum').textContent = !l.count ? 'No photos yet.'
-    : l.sent === l.count ? 'All ' + l.count + ' photos are in Google Drive.'
+    : l.sent === l.count ? (l.count === 1 ? 'The photo is in Google Drive.' : 'All ' + l.count + ' photos are in Google Drive.')
     : l.count + ' photos saved in the app. ' + l.sent + ' of ' + l.count + ' delivered to Google Drive so far.';
   $('#lot-photos-sum').className = l.count && l.sent === l.count ? 'ok' : 'muted';
   $('#lot-photos').innerHTML = photos.map((ph, i) => `
@@ -751,6 +751,16 @@ async function bakeUpright(blob, landscape) {
     URL.revokeObjectURL(url);
   }
 }
+
+$('#hq').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const fixed = await bakeUpright(file, false);
+  await queuePhoto(fixed, fixed === file ? (file.name.split('.').pop() || 'jpg').toLowerCase() : 'jpg');
+  renderLot();
+  pump();
+});
 
 $('#lib').addEventListener('change', async e => {
   for (const file of Array.from(e.target.files)) {
@@ -892,7 +902,8 @@ async function openCamera() {
   $('#cam-flip').classList.toggle('on', flip);
   $('#cam-flip').textContent = flip ? 'Flipped' : 'Flip';
   try {
-    const size = { width: { ideal: 4032 }, height: { ideal: 3024 } };
+    // a lower frame rate lets the camera keep the shutter open longer in dim light: brighter, cleaner frames
+    const size = { width: { ideal: 4032 }, height: { ideal: 3024 }, frameRate: { ideal: 24, max: 30 } };
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign(lensId ? { deviceId: { exact: lensId } } : { facingMode: { ideal: 'environment' } }, size) });
     } catch (e) {
@@ -905,6 +916,7 @@ async function openCamera() {
     video.play().catch(() => {});
     if (!video.videoWidth) await new Promise(r => video.addEventListener('loadedmetadata', r, { once: true }));
     await sharpen(stream.getVideoTracks()[0]);
+    setupTorch(stream.getVideoTracks()[0]);
     showCamSize();
   } catch (e) {
     closeCamera();
@@ -968,6 +980,28 @@ $('#cam-shutter').addEventListener('click', async () => {
   $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
 });
 $('#cam-close').addEventListener('click', closeCamera);
+
+/** The flashlight, where the phone lets a web page use it. */
+let torchOn = false;
+function setupTorch(track) {
+  let caps = {};
+  try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) { /* none */ }
+  torchOn = false;
+  $('#cam-torch').classList.toggle('hide', !caps.torch);
+  $('#cam-torch').classList.remove('on');
+  $('#cam-torch').setAttribute('aria-pressed', 'false');
+}
+$('#cam-torch').addEventListener('click', async () => {
+  if (!stream) return;
+  try {
+    await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: !torchOn }] });
+    torchOn = !torchOn;
+    $('#cam-torch').classList.toggle('on', torchOn);
+    $('#cam-torch').setAttribute('aria-pressed', String(torchOn));
+  } catch (e) {
+    $('#cam-torch').classList.add('hide');
+  }
+});
 $('#cam-lenses').addEventListener('click', e => {
   if (!e.target.dataset.lens) return;
   lensId = e.target.dataset.lens;
