@@ -65,7 +65,7 @@ const jpg = Buffer.from('fake-jpeg').toString('base64');
 
 // connect with three agents
 let r = own('saveAgents', { agents: [{ name: 'Justin', color: '#46b1e1', email: 'j@x' }, { name: 'Gita', color: '#f2cfee', email: '' }, { name: 'Derek', color: '#ffff00', email: 'd@x' }], expireDays: 13, nextRun: '2026-10-25' });
-assert(r.ok && r.version === 5 && r.teamKey, 'saveAgents');
+assert(r.ok && r.version >= 6 && r.teamKey, 'saveAgents');
 const key = r.teamKey;
 const team = (action, b) => post(Object.assign({ action, key }, b));
 assert.strictEqual(post({ action: 'ping', token: 'wrong' }).ok, false, 'wrong token rejected');
@@ -116,6 +116,34 @@ assert.strictEqual(l2096.stage, 'Walls going up');
 const l2109 = gita.lots.find(l => l.lot === '2109');
 assert(l2109.pending && l2109.isNew, '2109 is pending and new this run');
 assert.strictEqual(r.run.agents.find(a => a.name === 'Derek').lots.find(l => l.lot === '30').isNew, false);
+
+// Derek's lot 1732: three photos sent two at a time. Drive can hand the second upload a stale copy of the
+// lot's photo list, so the list ends up one short; and two uploads at once could make two "Lot 1732" folders.
+const shots = [1, 2, 3].map(n => own('upload', { community: C, date: '2026-10-11', agent: 'Derek', lot: 1732, name: 'Lot 1732 - 0' + n + '.jpg', mime: 'image/jpeg', data: jpg }));
+assert(shots.every(x => x.ok && x.id), 'three photos stored');
+const derekDate = Object.values(folders).find(f => f.name === '2026-10-11' && !f.trashed);
+const derekFolder = derekDate.kids.find(k => k.name === 'Derek');
+const lot1732 = derekFolder.kids.find(k => k.name === 'Lot 1732');
+const meta = JSON.parse(lot1732.desc); meta.files = meta.files.slice(0, 2); lot1732.desc = JSON.stringify(meta); // the lost entry
+ctx.changed_();
+let d1732 = team('teamView', { date: '2026-10-11' }).run.agents.find(a => a.name === 'Derek').lots.filter(l => l.lot === '1732');
+assert.strictEqual(d1732.length, 1, 'one card for lot 1732');
+assert.strictEqual(d1732[0].files.length, 3, 'all three photos show even when the photo list lost one');
+const twin = derekFolder.createFolder('Lot 1732');
+twin.createFile({ name: 'Lot 1732 - 04.jpg', mime: 'image/jpeg', bytes: Buffer.from('x') });
+ctx.changed_();
+d1732 = team('teamView', { date: '2026-10-11' }).run.agents.find(a => a.name === 'Derek').lots.filter(l => l.lot === '1732');
+assert.strictEqual(d1732.length, 1, 'a duplicate lot folder is merged into one card');
+assert.strictEqual(d1732[0].files.length, 4, 'photos from both copies show');
+r = team('markSent', { community: C, date: '2026-10-11', agent: 'Derek', lot: 1732, sent: true });
+assert(JSON.parse(twin.desc).sent && JSON.parse(lot1732.desc).sent, 'sent tick reaches both copies');
+const z = team('zip', { community: C, date: '2026-10-11', agent: 'Derek', lot: 1732 });
+assert(files[z.id].name.includes('4 photos'), 'zip has every photo');
+// a second upload to a lot that was just made reuses the same folder
+const before1801 = derekFolder.kids.length;
+own('upload', { community: C, date: '2026-10-11', agent: 'Derek', lot: 1801, name: 'a.jpg', mime: 'image/jpeg', data: jpg });
+own('upload', { community: C, date: '2026-10-11', agent: 'Derek', lot: 1801, name: 'b.jpg', mime: 'image/jpeg', data: jpg });
+assert.strictEqual(derekFolder.kids.length, before1801 + 1, 'one folder for a new lot');
 
 // sent tick and zip
 r = team('markSent', { community: C, date: '2026-10-11', agent: 'Gita', lot: 2096, sent: true });

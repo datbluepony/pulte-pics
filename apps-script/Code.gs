@@ -85,7 +85,7 @@ function teamKey_() {
 
 function config_() {
   return {
-    version: 5,
+    version: 6,
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
     agents: agents_(),
@@ -184,26 +184,54 @@ function child_(parent, name, create) {
   return create ? parent.createFolder(name) : null;
 }
 
+/** Every live folder with this name (two can exist if they were made at the same moment). */
+function children_(parent, name) {
+  const out = [];
+  const it = parent.getFoldersByName(name);
+  while (it.hasNext()) {
+    const f = it.next();
+    if (!f.isTrashed()) out.push(f);
+  }
+  return out;
+}
+
+/** A folder from the cache, if it is still there. */
+function cached_(cache, key) {
+  const id = cache.get(key);
+  if (!id) return null;
+  try {
+    const f = DriveApp.getFolderById(id);
+    return f.isTrashed() ? null : f;
+  } catch (err) {
+    return null;
+  }
+}
+
 /** Folder for a lot, created on demand. The agent's date folder is link-shared view-only. */
 function lotFolder_(community, date, agent, lot) {
   const cache = CacheService.getScriptCache();
   const key = ['lot', community, date, agent, lot].join('|');
-  const hit = cache.get(key);
-  if (hit) {
-    try {
-      const f = DriveApp.getFolderById(hit);
-      if (!f.isTrashed()) return f;
-    } catch (err) { /* stale cache entry */ }
-  }
+  const hit = cached_(cache, key);
+  if (hit) return hit;
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const dateFolder = child_(child_(rootFolder_(), community, true), date, true);
-    let agentFolder = child_(dateFolder, agent, false);
+    // another upload may have made it while this one waited for the lock; Drive search can lag behind that
+    const again = cached_(cache, key);
+    if (again) return again;
+    const dateKey = ['date', community, date].join('|');
+    let dateFolder = cached_(cache, dateKey);
+    if (!dateFolder) {
+      dateFolder = child_(child_(rootFolder_(), community, true), date, true);
+      cache.put(dateKey, dateFolder.getId(), 21600);
+    }
+    const agentKey = ['agent', community, date, agent].join('|');
+    let agentFolder = cached_(cache, agentKey) || child_(dateFolder, agent, false);
     if (!agentFolder) {
       agentFolder = dateFolder.createFolder(agent);
       agentFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     }
+    cache.put(agentKey, agentFolder.getId(), 21600);
     const folder = child_(agentFolder, 'Lot ' + lot, true);
     cache.put(key, folder.getId(), 21600);
     return folder;
@@ -233,6 +261,15 @@ function indexFile_(folder, id, name) {
 }
 
 /** An existing lot folder, or null. Never creates anything. */
+function findLots_(community, date, agent, lot) {
+  const c = child_(rootFolder_(), community, false);
+  const d = c && child_(c, '' + date, false);
+  if (!d) return [];
+  const out = [];
+  children_(d, '' + agent).forEach(a => { children_(a, 'Lot ' + lot).forEach(f => out.push(f)); });
+  return out;
+}
+
 function findLot_(community, date, agent, lot) {
   let f = child_(rootFolder_(), community, false);
   ['' + date, '' + agent, 'Lot ' + lot].forEach(name => { f = f && child_(f, name, false); });
@@ -295,26 +332,26 @@ function deletePhoto_(req) {
   return {};
 }
 
+/** Photos in a lot folder, straight from Drive. */
+function photos_(folder) {
+  const files = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (!f.isTrashed() && String(f.getMimeType()).indexOf('image/') === 0) files.push({ id: f.getId(), name: f.getName() });
+  }
+  return files;
+}
+
 function lotInfo_(folder) {
   const meta = readMeta_(folder);
-  let files = meta.files;
-  if (!files) {
-    // lots uploaded before the file index existed: list the folder itself
-    files = [];
-    const it = folder.getFiles();
-    while (it.hasNext()) {
-      const f = it.next();
-      if (!f.isTrashed() && String(f.getMimeType()).indexOf('image/') === 0) files.push({ id: f.getId(), name: f.getName() });
-    }
-  }
-  files = files.slice().sort((x, y) => x.name < y.name ? -1 : 1);
   return {
     lot: folder.getName().replace(/^Lot\s+/, ''),
     stage: meta.stage || '',
     note: meta.note || '',
     sent: !!meta.sent,
     folderUrl: folder.getUrl(),
-    files: files,
+    files: photos_(folder).sort((x, y) => x.name < y.name ? -1 : 1),
   };
 }
 
@@ -337,15 +374,25 @@ function agentRuns_(agentName) {
   return runs;
 }
 
-function lots_(agentFolder) {
-  const lots = [];
-  const it = agentFolder.getFolders();
-  while (it.hasNext()) {
-    const f = it.next();
-    if (!f.isTrashed()) lots.push(lotInfo_(f));
-  }
-  lots.sort((a, b) => Number(a.lot) - Number(b.lot));
-  return lots;
+/** Lots in one or more folders of the same agent; same-named lot folders are merged into one lot. */
+function lots_(agentFolders) {
+  const byLot = {};
+  [].concat(agentFolders).forEach(af => {
+    const it = af.getFolders();
+    while (it.hasNext()) {
+      const f = it.next();
+      if (f.isTrashed()) continue;
+      const info = lotInfo_(f);
+      const had = byLot[info.lot];
+      if (!had) { byLot[info.lot] = info; continue; }
+      info.files.forEach(x => { if (!had.files.some(y => y.id === x.id)) had.files.push(x); });
+      had.files.sort((x, y) => x.name < y.name ? -1 : 1);
+      had.stage = had.stage || info.stage;
+      had.note = had.note || info.note;
+      had.sent = had.sent || info.sent;
+    }
+  });
+  return Object.keys(byLot).map(k => byLot[k]).sort((x, y) => Number(x.lot) - Number(y.lot));
 }
 
 // ---------- agent side ----------
@@ -373,7 +420,7 @@ function teamView_(req) {
   if (hit) return JSON.parse(hit);
   const out = buildTeamView_(req);
   const text = JSON.stringify(out);
-  if (text.length < 95000) cache.put(cacheKey, text, 600);
+  if (text.length < 95000) cache.put(cacheKey, text, 90);
   return out;
 }
 
@@ -401,8 +448,9 @@ function buildTeamView_(req) {
   const prev = before ? plans[before] : null;
   let shot = 0;
   const agents = !run ? [] : agents_().map(a => {
-    const f = child_(run.folder, a.name, false);
-    const lots = f ? lots_(f) : [];
+    const folders = children_(run.folder, a.name);
+    const f = folders[0];
+    const lots = lots_(folders);
     shot += lots.filter(l => l.files.length).length;
     // lots on the map that have no photos yet
     planned.filter(p => p[1] === a.name && !lots.some(l => l.lot === p[0])).forEach(p => {
@@ -432,14 +480,16 @@ function buildTeamView_(req) {
 
 /** An agent ticks a lot once its update has gone to the customer. */
 function markSent_(req) {
-  const folder = findLot_(req.community, req.date, req.agent, req.lot);
-  if (!folder) throw new Error('That lot is no longer here.');
+  const folders = findLots_(req.community, req.date, req.agent, req.lot);
+  if (!folders.length) throw new Error('That lot is no longer here.');
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const meta = readMeta_(folder);
-    meta.sent = !!req.sent;
-    folder.setDescription(JSON.stringify(meta));
+    folders.forEach(folder => {
+      const meta = readMeta_(folder);
+      meta.sent = !!req.sent;
+      folder.setDescription(JSON.stringify(meta));
+    });
   } finally {
     lock.releaseLock();
   }
@@ -449,9 +499,13 @@ function markSent_(req) {
 
 /** One zip of a lot's photos, built the first time someone asks for it. */
 function zip_(req) {
-  const folder = findLot_(req.community, req.date, req.agent, req.lot);
-  if (!folder) throw new Error('That lot is no longer here.');
-  const info = lotInfo_(folder);
+  const folders = findLots_(req.community, req.date, req.agent, req.lot);
+  if (!folders.length) throw new Error('That lot is no longer here.');
+  const folder = folders[0];
+  const files = [];
+  folders.forEach(f => photos_(f).forEach(x => { if (!files.some(y => y.id === x.id)) files.push(x); }));
+  files.sort((x, y) => x.name < y.name ? -1 : 1);
+  const info = { lot: String(req.lot), files: files };
   const name = 'Lot ' + info.lot + ' - ' + req.date + ' - ' + info.files.length + ' photos.zip';
   const made = folder.getFilesByName(name);
   if (made.hasNext()) return { id: made.next().getId() };
