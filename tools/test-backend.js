@@ -8,7 +8,9 @@ let nextId = 1;
 class File {
   constructor(name, parent, blob) { this.id = 'file' + nextId++; this.name = name; this.parent = parent; this.trashed = false; this.blob = blob; }
   getId() { return this.id; } getName() { return this.name; } isTrashed() { return this.trashed || this.parent.isTrashed(); }
-  setTrashed(t) { this.trashed = t; } getMimeType() { return this.blob.mime; } getBlob() { return this.blob; }
+  setTrashed(t) { this.trashed = t; } getMimeType() { return this.blob.mime; }
+  getBlob() { const b = this.blob; return { getBytes: () => b.bytes, getContentType: () => b.mime }; }
+  getParents() { return iter([this.parent]); } getSize() { return this.blob.bytes.length; }
 }
 class Folder {
   constructor(name, parent) { this.id = 'folder' + nextId++; this.name = name; this.parent = parent; this.kids = []; this.files = []; this.desc = ''; this.trashed = false; this.sharing = null; }
@@ -45,7 +47,8 @@ const ctx = {
     getUuid: () => 'u' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2),
     base64Decode: d => Buffer.from(d, 'base64'),
     newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
-    zip: (blobs, name) => ({ bytes: Buffer.concat(blobs.map(b => b.bytes)), mime: 'application/zip', name }),
+    zip: (blobs, name) => ({ bytes: Buffer.concat(blobs.map(b => b.getBytes ? b.getBytes() : b.bytes)), mime: 'application/zip', name }),
+    base64Encode: b => Buffer.from(b).toString('base64'),
   },
   MailApp: { sendEmail: m => mail.push(m), getRemainingDailyQuota: () => 100 },
   ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyDays: () => ({ atHour: () => ({ create() {} }) }) }) }) },
@@ -65,7 +68,7 @@ const jpg = Buffer.from('fake-jpeg').toString('base64');
 
 // connect with three agents
 let r = own('saveAgents', { agents: [{ name: 'Justin', color: '#46b1e1', email: 'j@x' }, { name: 'Gita', color: '#f2cfee', email: '' }, { name: 'Derek', color: '#ffff00', email: 'd@x' }], expireDays: 13, nextRun: '2026-10-25' });
-assert(r.ok && r.version >= 7 && r.teamKey, 'saveAgents');
+assert(r.ok && r.version >= 8 && r.teamKey, 'saveAgents');
 const key = r.teamKey;
 const team = (action, b) => post(Object.assign({ action, key }, b));
 assert.strictEqual(post({ action: 'ping', token: 'wrong' }).ok, false, 'wrong token rejected');
@@ -165,6 +168,26 @@ props.PLANS = JSON.stringify({ '2026-09-13': { community: C, lots: [['1', 'Justi
 assert(ctx.plans_()['2026-09-13'], 'legacy plans readable');
 own('plan', { community: C, date: '2026-10-25', lots: [] });
 assert(!('PLANS' in props) && props['PLAN_2026-09-13'], 'legacy plans moved to per-run keys');
+
+// straightening photos: nothing is ever lost
+const big = Buffer.alloc(60000, 7).toString('base64');
+const shot = own('upload', { community: C, date: '2026-10-11', agent: 'Gita', lot: 2140, name: 'Lot 2140 - 01.jpg', mime: 'image/jpeg', data: big });
+team('zip', { community: C, date: '2026-10-11', agent: 'Gita', lot: 2140 });
+let list = own('listRun', { community: C, date: '2026-10-11' });
+assert(list.ok && list.lots.some(l => l.lot === '2140' && l.files.some(f => f.id === shot.id)), 'run listed for fixing');
+const got = own('getPhoto', { id: shot.id });
+assert.strictEqual(got.data, big, 'photo bytes handed over intact');
+let bad = own('replacePhoto', { id: shot.id, data: Buffer.alloc(100).toString('base64'), mime: 'image/jpeg' });
+assert(!bad.ok && !files[shot.id].trashed, 'an incomplete copy is refused and the original stays');
+const turned = Buffer.alloc(61000, 9).toString('base64');
+const rep1 = own('replacePhoto', { id: shot.id, data: turned, mime: 'image/jpeg' });
+assert(rep1.ok && files[rep1.id] && !files[rep1.id].trashed, 'straightened copy saved');
+assert(files[shot.id].trashed && files[shot.id].name === 'Lot 2140 - 01.jpg', 'original moved to trash, not deleted');
+assert.strictEqual(files[rep1.id].name, 'Lot 2140 - 01.jpg', 'copy keeps the photo name');
+assert(Object.values(files).filter(f => f.parent === files[rep1.id].parent && /\.zip$/.test(f.name)).every(f => f.trashed), 'old zip of the lot cleared');
+assert(!own('replacePhoto', { id: shot.id, data: turned, mime: 'image/jpeg' }).ok, 'cannot replace the same original twice');
+const after = team('teamView', { date: '2026-10-11' }).run.agents.find(a => a.name === 'Gita').lots.find(l => l.lot === '2140');
+assert.deepStrictEqual(after.files.map(f => f.id), [rep1.id], 'agents see exactly one photo, the straightened one');
 
 // team passcode: checked by the script, so the public page code cannot skip it
 r = own('saveAgents', { agents: ctx.agents_(), passcode: 'Verdana26' });

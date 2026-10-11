@@ -62,6 +62,9 @@ function route_(req) {
     case 'wipe': return wipe_();
     case 'upload': return upload_(req);
     case 'deletePhoto': return deletePhoto_(req);
+    case 'listRun': return listRun_(req);
+    case 'getPhoto': return getPhoto_(req);
+    case 'replacePhoto': return replacePhoto_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
     default: throw new Error('Unknown action: ' + req.action);
@@ -101,7 +104,7 @@ function checkPasscode_(req) {
 
 function config_() {
   return {
-    version: 7,
+    version: 8,
     passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
@@ -332,6 +335,52 @@ function note_(req) {
   plans[req.date] = plan;
   savePlans_(plans);
   return {};
+}
+
+// ---------- straightening photos ----------
+
+/** Every photo in a run, by agent and lot, for the photographer to look over. */
+function listRun_(req) {
+  const c = child_(rootFolder_(), req.community, false);
+  const dates = [];
+  if (c) {
+    const it = c.getFolders();
+    while (it.hasNext()) { const d = it.next(); if (!d.isTrashed() && /^\d{4}-\d{2}-\d{2}$/.test(d.getName())) dates.push(d.getName()); }
+  }
+  dates.sort().reverse();
+  const date = dates.indexOf(req.date) >= 0 ? req.date : dates[0];
+  const d = date && child_(c, date, false);
+  const lots = [];
+  if (d) agents_().forEach(a => lots_(children_(d, a.name)).forEach(l => { if (l.files.length) lots.push({ agent: a.name, lot: l.lot, files: l.files }); }));
+  lots.sort((x, y) => Number(x.lot) - Number(y.lot));
+  return { dates: dates, date: date || '', lots: lots };
+}
+
+/** One photo's bytes, so the phone can turn it. */
+function getPhoto_(req) {
+  const f = DriveApp.getFileById(req.id);
+  const blob = f.getBlob();
+  return { name: f.getName(), mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
+}
+
+/**
+ * Swap a photo for a straightened copy. The copy is saved and checked first; only then does the original
+ * go to Drive's trash, where it can still be restored for 30 days. If anything fails, the original stays.
+ */
+function replacePhoto_(req) {
+  const old = DriveApp.getFileById(req.id);
+  if (old.isTrashed()) throw new Error('That photo was already replaced.');
+  const folder = old.getParents().next();
+  const bytes = Utilities.base64Decode(req.data);
+  if (bytes.length < 20000) throw new Error('The straightened photo looks incomplete, so the original was kept.');
+  const copy = folder.createFile(Utilities.newBlob(bytes, req.mime || 'image/jpeg', old.getName()));
+  if (copy.getSize() !== bytes.length) { copy.setTrashed(true); throw new Error('Saving the straightened photo failed, so the original was kept.'); }
+  old.setTrashed(true);
+  // a ready-made zip of this lot still holds the old photo
+  const zips = folder.getFiles();
+  while (zips.hasNext()) { const z = zips.next(); if (/\.zip$/i.test(z.getName())) z.setTrashed(true); }
+  changed_();
+  return { id: copy.getId() };
 }
 
 /** Remove one photo the photographer took by mistake. */

@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 22; // bump with docs/version.txt on every release
+const VERSION = 23; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -96,7 +96,13 @@ const tx = async (mode, fn) => {
 // while the app stays open.
 const memQueue = [];
 const queuePut = async item => {
-  try { await tx('readwrite', s => s.put(item)); } catch (e) { memQueue.push(item); }
+  try {
+    await tx('readwrite', s => s.put(item));
+  } catch (e) {
+    memQueue.push(item);
+    // warn plainly: these photos are lost if the app is closed before they send
+    setStatus('Phone storage refused a photo. Keep this app open until everything is sent.', 'err');
+  }
 };
 const queueDel = async id => {
   const i = memQueue.findIndex(m => m.id === id);
@@ -225,8 +231,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) pump
 // ---------- tabs ----------
 
 function show(tab) {
-  ['run', 'lot', 'map', 'settings'].forEach(v => $('#view-' + v).classList.toggle('hide', v !== tab));
-  document.querySelectorAll('nav .tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === (tab === 'lot' ? 'run' : tab)));
+  ['run', 'lot', 'map', 'settings', 'fix'].forEach(v => $('#view-' + v).classList.toggle('hide', v !== tab));
+  document.querySelectorAll('nav .tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === (tab === 'lot' ? 'run' : tab === 'fix' ? 'settings' : tab)));
   if (tab === 'map') renderMap(true);
   if (tab === 'settings') renderSettings();
   if (tab !== 'lot') currentLot = null;
@@ -845,15 +851,19 @@ function setTilt(t) {
 }
 
 /**
- * Which way the phone is turned, from the tilt sensor: gamma near -90 means the top of the phone points left,
- * near +90 means it points right. This reading has the same sign on iPhone and Android.
+ * Which way the phone is turned, from the tilt sensor. Held sideways, gamma sits right at its +90/-90 edge and
+ * flips sign with the slightest tilt forward or back, while beta jumps by 180 at the same moment. Their product
+ * cos(beta) x sin(gamma) is gravity across the phone and does not flip, so it says reliably which side is up.
  */
 function onOrient(e) {
-  if (e.gamma == null) return;
+  if (e.gamma == null || e.beta == null) return;
   sensed = true;
-  if (e.gamma < -45) setTilt(1);
-  else if (e.gamma > 45) setTilt(-1);
-  else if (Math.abs(e.gamma) < 25) setTilt(0);
+  const rad = Math.PI / 180;
+  const across = Math.cos(e.beta * rad) * Math.sin(e.gamma * rad); // + when the top of the phone points right
+  const along = Math.sin(e.beta * rad);                              // big when the phone is upright
+  if (across > .55) setTilt(-1);
+  else if (across < -.55) setTilt(1);
+  else if (Math.abs(along) > .75 && Math.abs(across) < .35) setTilt(0);
 }
 
 /** Backup reading from the accelerometer, only used when the tilt sensor gives nothing. */
@@ -1153,6 +1163,105 @@ async function syncConfig() {
   store.set('settings', settings);
 }
 
+// ---------- fix orientation of photos already in Drive ----------
+
+const turns = {};                                  // file id -> 90, 180 or 270 (degrees clockwise)
+const NEXT_TURN = { undefined: 180, 180: 90, 90: 270, 270: undefined };
+const turnLabel = { 90: 'quarter turn right', 180: 'flip upside down', 270: 'quarter turn left' };
+
+async function openFixer(date) {
+  show('fix');
+  $('#fix-msg').textContent = 'Loading your photos...';
+  $('#fix-list').innerHTML = '';
+  if ((settings.backend || 0) < 8) { $('#fix-msg').textContent = 'Update the Google script first (paste the new Code.gs and deploy a new version), then press Save and connect.'; return; }
+  try {
+    const out = await api('listRun', { community: COMMUNITY, date: date || (run && run.date) || '' });
+    $('#fix-date').innerHTML = out.dates.map(d => `<option value="${d}" ${d === out.date ? 'selected' : ''}>${esc(niceDate(d))}</option>`).join('');
+    const total = out.lots.reduce((n, l) => n + l.files.length, 0);
+    $('#fix-msg').textContent = total ? total + ' photos in ' + out.lots.length + (out.lots.length === 1 ? ' lot' : ' lots') + '. Tap the ones that need turning.' : 'No photos in this run.';
+    $('#fix-list').innerHTML = out.lots.map(l => `
+      <div class="card fix-lot"><div class="row"><b>Lot ${esc(l.lot)}</b><span class="dot" style="background:${esc(agentColor(l.agent))}"></span><span class="muted">${esc(l.agent)}</span></div>
+        <div class="fix-grid">${l.files.map(f => `<button class="fix-shot" data-id="${esc(f.id)}" aria-label="${esc(f.name)}"><img loading="lazy" alt="" src="https://drive.google.com/thumbnail?id=${encodeURIComponent(f.id)}&sz=w300"><b></b></button>`).join('')}</div></div>`).join('');
+    renderTurns();
+  } catch (e) {
+    $('#fix-msg').textContent = 'Could not load the photos: ' + e.message;
+  }
+}
+
+function renderTurns() {
+  document.querySelectorAll('.fix-shot').forEach(btn => {
+    const t = turns[btn.dataset.id];
+    btn.classList.toggle('on', !!t);
+    btn.querySelector('img').style.transform = t ? 'rotate(' + t + 'deg)' : '';
+    btn.querySelector('b').textContent = t ? (t === 180 ? '180°' : t === 90 ? '↻ 90°' : '↺ 90°') : '';
+    btn.title = t ? turnLabel[t] : '';
+  });
+  const n = Object.keys(turns).length;
+  $('#fix-go').disabled = !n;
+  $('#fix-go').textContent = 'Fix ' + n + ' photo' + (n === 1 ? '' : 's');
+}
+
+$('#btn-fixer').addEventListener('click', () => openFixer());
+$('#fix-back').addEventListener('click', () => show('settings'));
+$('#fix-date').addEventListener('change', e => { Object.keys(turns).forEach(k => delete turns[k]); openFixer(e.target.value); });
+$('#fix-list').addEventListener('click', e => {
+  const btn = e.target.closest('.fix-shot');
+  if (!btn || btn.disabled) return;
+  const next = NEXT_TURN[turns[btn.dataset.id]];
+  if (next) turns[btn.dataset.id] = next; else delete turns[btn.dataset.id];
+  renderTurns();
+});
+
+/** Turn one photo's pixels by a quarter-turn multiple and return it as a JPEG. */
+async function turnPhoto(b64, mime, deg) {
+  const img = new Image();
+  img.src = 'data:' + (mime || 'image/jpeg') + ';base64,' + b64;
+  await img.decode();
+  const w = img.naturalWidth, h = img.naturalHeight, side = deg !== 180;
+  const c = document.createElement('canvas');
+  c.width = side ? h : w; c.height = side ? w : h;
+  const ctx = c.getContext('2d');
+  ctx.translate(c.width / 2, c.height / 2);
+  ctx.rotate(deg * Math.PI / 180);
+  ctx.drawImage(img, -w / 2, -h / 2);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
+  if (!blob) throw new Error('could not turn the photo');
+  return toBase64(blob);
+}
+
+$('#fix-go').addEventListener('click', async () => {
+  const ids = Object.keys(turns);
+  if (!ids.length || !confirm('Turn ' + ids.length + ' photo' + (ids.length === 1 ? '' : 's') + '? Each original goes to Drive\'s trash once its straightened copy is saved, so it can be restored for 30 days.')) return;
+  $('#fix-go').disabled = true;
+  keepAwake(true);
+  let done = 0;
+  const failed = [];
+  for (const id of ids) {
+    const btn = document.querySelector('.fix-shot[data-id="' + CSS.escape(id) + '"]');
+    $('#fix-go').textContent = 'Fixing ' + (done + failed.length + 1) + ' of ' + ids.length + '... keep this screen open';
+    try {
+      const photo = await api('getPhoto', { id: id });
+      const data = await turnPhoto(photo.data, photo.mime, turns[id]);
+      const out = await api('replacePhoto', { id: id, data: data, mime: 'image/jpeg' });
+      delete turns[id];
+      done++;
+      if (btn) {
+        btn.dataset.id = out.id;
+        btn.disabled = true;
+        btn.classList.add('fixed');
+        btn.querySelector('img').style.transform = '';
+        btn.querySelector('img').src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(out.id) + '&sz=w300';
+        btn.querySelector('b').textContent = '✓';
+      }
+    } catch (e) {
+      failed.push(e.message);
+    }
+  }
+  keepAwake(false);
+  renderTurns();
+  $('#fix-msg').textContent = done + ' photo' + (done === 1 ? '' : 's') + ' fixed.' + (failed.length ? ' ' + failed.length + (failed.length === 1 ? ' could not be fixed and was' : ' could not be fixed and were') + ' left exactly as before (' + failed[0] + '). They are still selected: press Fix again to retry.' : ' The agents see them straight on their next refresh.');
+});
+
 $('#btn-wipe').addEventListener('click', async () => {
   if (!confirm('Delete every photo run from Google Drive and clear this phone? Your agents, links and settings stay. This cannot be undone.')) return;
   if (!confirm('Really delete all photos and runs?')) return;
@@ -1203,6 +1312,9 @@ checkUpdate();
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !stream) checkUpdate(); });
 
 // ---------- start ----------
+
+// ask the phone to keep queued photos even when it is short of space
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { /* best effort */ }
 
 fetch('lots.json').then(r => r.json()).then(async m => {
   master = m;
