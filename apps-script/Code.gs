@@ -47,11 +47,14 @@ function doPost(e) {
 function route_(req) {
   if (req.action === 'agentView') { checkPasscode_(req); return agentView_(req); }
   // the team page: anyone holding the team link
-  if (['teamView', 'markSent', 'zip'].indexOf(req.action) >= 0) {
+  const isOwner = !!req.token && req.token === PROPS.getProperty('OWNER_TOKEN');
+  if (!isOwner && ['teamView', 'markSent', 'zip', 'getPhoto', 'replacePhoto'].indexOf(req.action) >= 0) {
     if (!req.key || req.key !== teamKey_()) throw new Error('This link is not valid. Ask your photographer for the current one.');
     checkPasscode_(req);
     if (req.action === 'teamView') return teamView_(req);
     if (req.action === 'markSent') return markSent_(req);
+    if (req.action === 'getPhoto') return getPhoto_(req);
+    if (req.action === 'replacePhoto') return replacePhoto_(req);
     return zip_(req);
   }
   if (!req.token || req.token !== PROPS.getProperty('OWNER_TOKEN')) throw new Error('Wrong owner token.');
@@ -65,6 +68,9 @@ function route_(req) {
     case 'listRun': return listRun_(req);
     case 'getPhoto': return getPhoto_(req);
     case 'replacePhoto': return replacePhoto_(req);
+    case 'teamView': return teamView_(req);
+    case 'markSent': return markSent_(req);
+    case 'zip': return zip_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
     default: throw new Error('Unknown action: ' + req.action);
@@ -104,7 +110,7 @@ function checkPasscode_(req) {
 
 function config_() {
   return {
-    version: 8,
+    version: 9,
     passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
@@ -356,9 +362,21 @@ function listRun_(req) {
   return { dates: dates, date: date || '', lots: lots };
 }
 
-/** One photo's bytes, so the phone can turn it. */
+/** A photo file, only if it sits in a lot folder inside Pulte Pics (lot, agent, date, community, Pulte Pics). */
+function ourPhoto_(id) {
+  const f = DriveApp.getFileById(id);
+  const root = rootFolder_().getId();
+  let folder = f.getParents().hasNext() ? f.getParents().next() : null;
+  for (let up = 0; folder && up < 5; up++) {
+    if (folder.getId() === root) return f;
+    folder = folder.getParents().hasNext() ? folder.getParents().next() : null;
+  }
+  throw new Error('That file is not one of the update photos.');
+}
+
+/** One photo's bytes, so the phone or computer can turn it. */
 function getPhoto_(req) {
-  const f = DriveApp.getFileById(req.id);
+  const f = ourPhoto_(req.id);
   const blob = f.getBlob();
   return { name: f.getName(), mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
 }
@@ -368,7 +386,7 @@ function getPhoto_(req) {
  * go to Drive's trash, where it can still be restored for 30 days. If anything fails, the original stays.
  */
 function replacePhoto_(req) {
-  const old = DriveApp.getFileById(req.id);
+  const old = ourPhoto_(req.id);
   if (old.isTrashed()) throw new Error('That photo was already replaced.');
   const folder = old.getParents().next();
   const bytes = Utilities.base64Decode(req.data);

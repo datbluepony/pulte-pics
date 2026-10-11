@@ -19,6 +19,7 @@ class Folder {
   setTrashed(t) { this.trashed = t; }
   getDescription() { return this.desc; } setDescription(d) { this.desc = d; }
   setSharing(a, p) { this.sharing = [a, p]; }
+  getParents() { return iter(this.parent ? [this.parent] : []); }
   createFolder(n) { const f = new Folder(n, this); this.kids.push(f); folders[f.id] = f; return f; }
   createFile(blob) { const f = new File(blob.name, this, blob); this.files.push(f); files[f.id] = f; return f; }
   getFolders() { return iter(this.kids.filter(k => !k.trashed)); }
@@ -68,7 +69,7 @@ const jpg = Buffer.from('fake-jpeg').toString('base64');
 
 // connect with three agents
 let r = own('saveAgents', { agents: [{ name: 'Justin', color: '#46b1e1', email: 'j@x' }, { name: 'Gita', color: '#f2cfee', email: '' }, { name: 'Derek', color: '#ffff00', email: 'd@x' }], expireDays: 13, nextRun: '2026-10-25' });
-assert(r.ok && r.version >= 8 && r.teamKey, 'saveAgents');
+assert(r.ok && r.version >= 9 && r.teamKey, 'saveAgents');
 const key = r.teamKey;
 const team = (action, b) => post(Object.assign({ action, key }, b));
 assert.strictEqual(post({ action: 'ping', token: 'wrong' }).ok, false, 'wrong token rejected');
@@ -188,6 +189,16 @@ assert(Object.values(files).filter(f => f.parent === files[rep1.id].parent && /\
 assert(!own('replacePhoto', { id: shot.id, data: turned, mime: 'image/jpeg' }).ok, 'cannot replace the same original twice');
 const after = team('teamView', { date: '2026-10-11' }).run.agents.find(a => a.name === 'Gita').lots.find(l => l.lot === '2140');
 assert.deepStrictEqual(after.files.map(f => f.id), [rep1.id], 'agents see exactly one photo, the straightened one');
+
+// agents can turn photos too, but only update photos
+const agentShot = own('upload', { community: C, date: '2026-10-11', agent: 'Derek', lot: 2136, name: 'Lot 2136 - 01.jpg', mime: 'image/jpeg', data: big });
+assert.strictEqual(team('getPhoto', { id: agentShot.id }).data, big, 'agent can fetch an update photo');
+const agentRep = team('replacePhoto', { id: agentShot.id, data: turned, mime: 'image/jpeg' });
+assert(agentRep.ok && files[agentShot.id].trashed && !files[agentRep.id].trashed, 'agent can straighten an update photo, original to trash');
+const stranger = ctx.DriveApp.createFolder('Andrew personal').createFile({ name: 'tax.pdf', mime: 'application/pdf', bytes: Buffer.alloc(30000) });
+assert(!team('getPhoto', { id: stranger.id }).ok, 'agents cannot read files outside Pulte Pics');
+assert(!team('replacePhoto', { id: stranger.id, data: turned, mime: 'image/jpeg' }).ok && !stranger.trashed, 'or replace them');
+assert(!post({ action: 'replacePhoto', key: 'bad', id: agentRep.id, data: turned }).ok, 'bad team key refused');
 
 // team passcode: checked by the script, so the public page code cannot skip it
 r = own('saveAgents', { agents: ctx.agents_(), passcode: 'Verdana26' });

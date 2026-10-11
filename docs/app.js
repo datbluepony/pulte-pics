@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 23; // bump with docs/version.txt on every release
+const VERSION = 24; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -204,10 +204,10 @@ async function sendItem(it) {
           const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.buf ? new Blob([it.buf]) : it.blob) });
           const lot = run && run.date === it.date && lotOf(it.lot);
           if (lot) {
-            lot.sent++;
-            // the Drive file id is the proof this photo arrived
+            // the Drive file id is the proof this photo arrived; the count is worked out from those, never added up
             const photo = (lot.photos || []).find(ph => ph.name === it.name);
-            if (photo) photo.id = up.id;
+            if (photo) { photo.id = up.id; lot.sent = lot.photos.filter(ph => ph.id).length; }
+            else lot.sent++;
             saveRun(); renderRoute(); renderLot();
           }
         } else if (it.type === 'plan') {
@@ -670,11 +670,14 @@ async function queuePhoto(blob, ext, thumbSource) {
   const l = lotOf(currentLot);
   l.seq = Math.max(l.seq || 0, l.count) + 1; // never reuse a file name, even after a lost photo
   const name = 'Lot ' + l.lot + ' - ' + run.date + ' - ' + String(l.seq).padStart(2, '0') + '.' + ext;
+  // the photo's record exists before it can upload, so a fast upload always finds it
+  const record = { name: name, thumb: '', id: '' };
+  (l.photos = l.photos || []).push(record);
+  l.count++;
   // stored as raw bytes: iPhone can refuse to store photo objects themselves
   const buf = await new Response(blob).arrayBuffer();
   await queuePut({ id: run.date + '/' + l.lot + '/' + l.seq, type: 'photo', t: Date.now() + l.seq / 1000, community: run.community, date: run.date, agent: l.agent, lot: l.lot, name: name, mime: blob.type || 'image/jpeg', buf: buf });
-  l.count++;
-  (l.photos = l.photos || []).push({ name: name, thumb: await makeThumb(thumbSource || blob), id: '' });
+  record.thumb = await makeThumb(thumbSource || blob);
   saveRun();
 }
 

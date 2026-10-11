@@ -262,6 +262,13 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 #viewer .nav:hover { background: rgba(255, 255, 255, .2); }
 #viewer .prev { left: 14px; } #viewer .next { right: 14px; }
 #viewer .ghost { background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .2); }
+#viewer .turn { display: inline-flex; gap: 6px; align-items: center; }
+#viewer .turn .ghost { min-width: 44px; font-size: 18px; padding: 9px 12px; }
+#viewer .turn #v-flip { font-size: 13px; }
+#viewer .save { background: linear-gradient(135deg, #e2c47f, var(--gold)); color: var(--night); border: 0; }
+#viewer .stage img { transition: transform .3s cubic-bezier(.2, .75, .2, 1); }
+#viewer .v-note { position: absolute; left: 50%; top: 78px; transform: translateX(-50%); z-index: 3; padding: 10px 16px; border-radius: 99px; background: rgba(29, 127, 75, .92); color: #fff; font-weight: 700; font-size: 14px; white-space: nowrap; }
+#viewer .v-note.err { background: rgba(170, 50, 40, .95); }
 #viewer .film { display: flex; gap: 8px; justify-content: center; padding: 14px 20px 20px; overflow-x: auto; }
 #viewer .film button { padding: 0; width: 76px; height: 57px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; opacity: .55; flex: none; background: #1b2a37; }
 #viewer .film button.on { border-color: #e2c47f; opacity: 1; }
@@ -363,7 +370,15 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 </div></main>
 
 <div id="viewer" class="hide" role="dialog" aria-label="Photo viewer">
-  <div class="vtop"><b id="v-title"></b><span class="grow cap" id="v-cap"></span><a class="btn ghost" id="v-dl">Download full size</a><button class="ghost" id="v-close">Close</button></div>
+  <div class="vtop"><b id="v-title"></b><span class="grow cap" id="v-cap"></span>
+    <span class="turn" role="group" aria-label="Turn this photo">
+      <button class="ghost" id="v-left" title="Turn left (L)" aria-label="Turn left">&#8634;</button>
+      <button class="ghost" id="v-flip" title="Flip upside down (F)">180&deg;</button>
+      <button class="ghost" id="v-right" title="Turn right (R)" aria-label="Turn right">&#8635;</button>
+      <button class="save hide" id="v-save">Save rotation</button>
+    </span>
+    <a class="btn ghost" id="v-dl">Download full size</a><button class="ghost" id="v-close">Close</button></div>
+  <div class="v-note hide" id="v-note"></div>
   <div class="stage"><img id="v-img" alt=""></div>
   <div class="film" id="v-film"></div>
   <button class="nav prev" id="v-prev" aria-label="Previous photo">&lsaquo;</button>
@@ -609,7 +624,7 @@ function lotCard(l) {
   const at = STAGES.indexOf(l.stage);
   const first = l.files[0];
   return `<article class="card lot ${l.sent ? 'sent' : ''}" data-lot="${esc(l.lot)}">
-    <button class="cover" data-act="view" data-i="0" aria-label="View photos of lot ${esc(l.lot)}">
+    <button class="cover" data-act="view" data-i="0" aria-label="View photos of lot ${esc(l.lot)}" title="Open, and turn any photo that is sideways">
       ${first ? `<img loading="lazy" alt="Lot ${esc(l.lot)}" src="${thumb(first.id, 900)}">` : ''}
       <span class="count">${l.files.length} photo${l.files.length === 1 ? '' : 's'}</span>
     </button>
@@ -695,8 +710,58 @@ $('#lots').addEventListener('click', async e => {
   }
 });
 
+let turn = 0; // degrees clockwise the open photo is turned, not saved yet
+function setTurn(deg) {
+  turn = ((deg % 360) + 360) % 360;
+  $('#v-img').style.transform = turn ? 'rotate(' + turn + 'deg)' + (turn % 180 ? ' scale(.75)' : '') : '';
+  $('#v-save').classList.toggle('hide', !turn);
+}
+function note(text, bad) {
+  const n = $('#v-note');
+  n.textContent = text;
+  n.className = 'v-note' + (bad ? ' err' : '');
+  clearTimeout(note.t);
+  note.t = setTimeout(() => n.classList.add('hide'), bad ? 6000 : 3000);
+}
+
+/** Turn the photo's real pixels and swap it in Drive: the straightened copy is saved before the original goes to the trash. */
+async function saveTurn() {
+  const f = shown.files[shown.i];
+  const deg = turn;
+  if (!deg || !f) return;
+  $('#v-save').disabled = true;
+  $('#v-save').textContent = 'Saving...';
+  try {
+    const photo = await call('getPhoto', { id: f.id });
+    const img = new Image();
+    img.src = 'data:' + (photo.mime || 'image/jpeg') + ';base64,' + photo.data;
+    await img.decode();
+    const w = img.naturalWidth, h = img.naturalHeight, side = deg !== 180;
+    const c = document.createElement('canvas');
+    c.width = side ? h : w; c.height = side ? w : h;
+    const ctx = c.getContext('2d');
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(deg * Math.PI / 180);
+    ctx.drawImage(img, -w / 2, -h / 2);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
+    const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(blob); });
+    const out = await call('replacePhoto', { id: f.id, data: data, mime: 'image/jpeg' });
+    f.id = out.id; // the same photo, now straight, everywhere on the page
+    setTurn(0);
+    $('#v-img').src = thumb(f.id, 1800);
+    renderLots();
+    showPhoto();
+    note('Saved. This photo now shows straight for everyone.');
+  } catch (err) {
+    note('Could not save that (' + err.message + '). The photo was left exactly as it was.', true);
+  }
+  $('#v-save').disabled = false;
+  $('#v-save').textContent = 'Save rotation';
+}
+
 function showPhoto() {
   const f = shown.files[shown.i];
+  setTurn(0);
   $('#v-img').src = thumb(f.id, 1800);
   $('#v-title').textContent = 'Lot ' + shown.lot;
   $('#v-cap').textContent = 'Photo ' + (shown.i + 1) + ' of ' + shown.files.length;
@@ -710,11 +775,19 @@ const step = d => { shown.i = (shown.i + d + shown.files.length) % shown.files.l
 $('#v-prev').addEventListener('click', () => step(-1));
 $('#v-next').addEventListener('click', () => step(1));
 $('#v-close').addEventListener('click', closeViewer);
+$('#v-left').addEventListener('click', () => setTurn(turn - 90));
+$('#v-right').addEventListener('click', () => setTurn(turn + 90));
+$('#v-flip').addEventListener('click', () => setTurn(turn + 180));
+$('#v-save').addEventListener('click', saveTurn);
 $('#v-film').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) { shown.i = Number(b.dataset.i); showPhoto(); } });
 $('#viewer').addEventListener('click', e => { if (e.target.classList.contains('stage')) closeViewer(); });
 document.addEventListener('keydown', e => {
   if ($('#viewer').classList.contains('hide')) return;
   if (e.key === 'Escape') closeViewer();
+  if (e.key === 'r' || e.key === 'R') setTurn(turn + 90);
+  if (e.key === 'l' || e.key === 'L') setTurn(turn - 90);
+  if (e.key === 'f' || e.key === 'F') setTurn(turn + 180);
+  if (e.key === 'Enter' && turn) saveTurn();
   if (e.key === 'ArrowLeft') step(-1);
   if (e.key === 'ArrowRight') step(1);
 });
