@@ -11,7 +11,7 @@
 <title>Pulte Pics</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.png">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <header>
@@ -179,6 +179,8 @@
         <div class="grow"><label for="set-expire">Keep photos (days)</label><input type="number" id="set-expire" min="1" max="90"></div>
         <div class="grow"><label for="set-next">Next photo run</label><input type="date" id="set-next"></div>
       </div>
+      <label for="set-pass">Agents' passcode (leave empty for none)</label>
+      <input type="text" id="set-pass" autocapitalize="off" autocorrect="off" autocomplete="off" placeholder="e.g. verdana26">
     </div>
     <h3 class="section">Agents</h3>
     <div id="agent-list"></div>
@@ -221,8 +223,8 @@
   </div>
 </nav>
 
-<script src="route.js?v=21"></script>
-<script src="mapread.js?v=21"></script>
-<script src="app.js?v=21"></script>
+<script src="route.js?v=22"></script>
+<script src="mapread.js?v=22"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>

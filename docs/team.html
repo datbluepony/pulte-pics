@@ -203,6 +203,33 @@ body { background-color: var(--porcelain); background-image: url("data:image/svg
   .cover img, .strip img { opacity: 1; }
 }
 
+/* ---------- welcome / passcode ---------- */
+#gate { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 24px 16px; color: #fff; background: var(--night); overflow: auto; }
+#gate::before { content: ""; position: absolute; inset: -30px; background: url(map.jpg) center / cover no-repeat; opacity: .35; filter: saturate(.6) blur(2px); animation: drift 38s ease-in-out infinite alternate; }
+#gate::after { content: ""; position: absolute; inset: 0; background: radial-gradient(700px 420px at 50% 30%, rgba(184, 145, 58, .25), transparent 70%), linear-gradient(180deg, rgba(7, 26, 42, .6), rgba(7, 26, 42, .95)); }
+#gate.leaving { animation: gate-out .6s cubic-bezier(.6, 0, .2, 1) forwards; }
+@keyframes gate-out { to { opacity: 0; transform: scale(1.04); visibility: hidden; } }
+.gate-card { position: relative; z-index: 1; width: 100%; max-width: 440px; text-align: center; padding: 38px 30px 32px; border-radius: 28px; background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .16); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 40px 90px rgba(0, 0, 0, .45); }
+.gate-card > * { animation: rise .7s cubic-bezier(.2, .75, .2, 1) both; }
+.gate-card > :nth-child(2) { animation-delay: .12s; } .gate-card > :nth-child(3) { animation-delay: .22s; } .gate-card > :nth-child(4) { animation-delay: .32s; } .gate-card > :nth-child(5) { animation-delay: .42s; } .gate-card > :nth-child(6) { animation-delay: .52s; }
+.gate-logo { width: 64px; height: 64px; margin: 0 auto 18px; animation: pop .8s cubic-bezier(.2, 1.4, .3, 1) both !important; filter: drop-shadow(0 10px 24px rgba(184, 145, 58, .45)); }
+@keyframes pop { from { opacity: 0; transform: scale(.5) rotate(-12deg); } to { opacity: 1; transform: none; } }
+.gate-card .eyebrow { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: #e2c47f; }
+.gate-card h1 { font: 600 clamp(34px, 7vw, 44px)/1.05 var(--display); letter-spacing: -.02em; margin: 10px 0 12px; }
+.gate-card p { color: rgba(255, 255, 255, .78); margin: 0 auto 24px; max-width: 34ch; }
+.gate-card form { display: grid; gap: 12px; }
+.gate-card input { font: 600 22px/1 var(--ui); letter-spacing: .25em; text-align: center; padding: 16px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .1); color: #fff; outline: none; transition: border-color .2s, box-shadow .2s; }
+.gate-card input::placeholder { color: rgba(255, 255, 255, .4); letter-spacing: .08em; font-size: 16px; }
+.gate-card input:focus { border-color: #e2c47f; box-shadow: 0 0 0 4px rgba(226, 196, 127, .2); }
+.gate-card button { padding: 16px; border-radius: 16px; border: 0; font-size: 16px; background: linear-gradient(135deg, #e2c47f, var(--gold)); color: var(--night); box-shadow: 0 12px 30px rgba(184, 145, 58, .35); }
+.gate-card button:hover { background: linear-gradient(135deg, #ecd394, #c49d44); }
+.gate-msg { min-height: 22px; font-size: 14px; font-weight: 700; color: #ffb4a8; }
+.gate-note { font-size: 12px; color: rgba(255, 255, 255, .5); margin-top: 6px; }
+.shake { animation: shake .45s !important; }
+@keyframes shake { 20%, 60% { transform: translateX(-9px); } 40%, 80% { transform: translateX(9px); } }
+.unlocked .gate-logo { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { #gate::before, .gate-card > *, .gate-logo { animation: none !important; } #gate.leaving { animation-duration: .01s; } }
+
 footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- photo viewer ---------- */
@@ -246,6 +273,21 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 </head>
 <body>
 <div id="loadbar" class="hide" aria-hidden="true"><i></i></div>
+<div id="gate" class="hide" role="dialog" aria-labelledby="gate-title">
+  <div class="gate-card">
+    <svg class="gate-logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg>
+    <div class="eyebrow">Verdana Village update photos</div>
+    <h1 id="gate-title">Welcome, Pulte agents!</h1>
+    <p>Please enter the one-time passcode I gave you. It saves on this device, so you'll only need to do this once.</p>
+    <form id="gate-form" autocomplete="off">
+      <label for="gate-pass" class="visually-hidden">Passcode</label>
+      <input id="gate-pass" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Passcode" required>
+      <button type="submit" id="gate-go">Unlock my photos</button>
+      <div class="gate-msg" id="gate-msg" role="alert"></div>
+    </form>
+    <div class="gate-note">Questions? Text Andrew.</div>
+  </div>
+</div>
 <div class="mast"><div class="wrap">
   <div class="topbar">
     <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg>
@@ -321,11 +363,17 @@ let me = '';              // agent being viewed
 let filter = 'all';
 let shown = { lot: '', files: [], i: 0 };
 
+const savedPass = {
+  get() { try { return localStorage.getItem('teampass') || ''; } catch (e) { return ''; } },
+  set(v) { try { localStorage.setItem('teampass', v); } catch (e) { /* private browsing: asked again next visit */ } },
+};
+let pass = savedPass.get();
+
 const remember = { get() { try { return localStorage.getItem('me') || ''; } catch (e) { return ''; } }, set(v) { try { localStorage.setItem('me', v); } catch (e) {} } };
 const longDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
 async function call(action, body) {
-  const res = await fetch(backend, { method: 'POST', body: JSON.stringify(Object.assign({ action: action, key: key }, body)) });
+  const res = await fetch(backend, { method: 'POST', body: JSON.stringify(Object.assign({ action: action, key: key, pass: pass }, body)) });
   const out = await res.json();
   if (!out.ok) throw new Error(out.error);
   return out;
@@ -373,11 +421,47 @@ async function load(date) {
     if (view.run.agents.some(a => a.name === saved)) open(saved); else home();
   } catch (e) {
     loading(false);
+    if (/^PASSCODE_/.test(e.message)) { showGate(e.message); return; }
     $('#msg').classList.remove('hide');
     $('#home').classList.add('hide'); $('#agent').classList.add('hide'); $('#banner').classList.add('hide');
     $('#msg').textContent = /owner token|Unknown action/.test(e.message) ? 'This page is being set up. Please try again shortly.' : e.message;
   }
 }
+
+/** The welcome screen that asks for the team passcode, once per device. */
+function showGate(reason) {
+  $('#gate').classList.remove('hide', 'leaving');
+  document.body.style.overflow = 'hidden';
+  const msg = $('#gate-msg');
+  msg.textContent = /WRONG/.test(reason) && pass ? 'That passcode is not right. Check it and try again.' : /LOCKED/.test(reason) ? reason.replace(/^PASSCODE_LOCKED: /, '') : '';
+  setTimeout(() => $('#gate-pass').focus(), 400);
+}
+
+$('#gate-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const tried = $('#gate-pass').value.trim();
+  if (!tried) return;
+  $('#gate-go').disabled = true;
+  $('#gate-go').textContent = 'Checking...';
+  pass = tried;
+  try {
+    view = await call('teamView', {});
+    savedPass.set(tried);
+    $('#gate').classList.add('leaving');
+    document.body.style.overflow = '';
+    setTimeout(() => $('#gate').classList.add('hide'), 650);
+    load('');
+  } catch (err) {
+    pass = '';
+    const card = $('.gate-card');
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+    $('#gate-msg').textContent = /LOCKED/.test(err.message) ? err.message.replace(/^PASSCODE_LOCKED: /, '') : /^PASSCODE_/.test(err.message) ? 'That passcode is not right. Check it and try again.' : err.message;
+    $('#gate-pass').value = ''; // start fresh rather than typing onto the wrong attempt
+    $('#gate-pass').focus();
+  }
+  $('#gate-go').disabled = false;
+  $('#gate-go').textContent = 'Unlock my photos';
+});
 
 const stats = a => ({
   homes: a.lots.length,

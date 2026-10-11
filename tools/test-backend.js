@@ -65,7 +65,7 @@ const jpg = Buffer.from('fake-jpeg').toString('base64');
 
 // connect with three agents
 let r = own('saveAgents', { agents: [{ name: 'Justin', color: '#46b1e1', email: 'j@x' }, { name: 'Gita', color: '#f2cfee', email: '' }, { name: 'Derek', color: '#ffff00', email: 'd@x' }], expireDays: 13, nextRun: '2026-10-25' });
-assert(r.ok && r.version >= 6 && r.teamKey, 'saveAgents');
+assert(r.ok && r.version >= 7 && r.teamKey, 'saveAgents');
 const key = r.teamKey;
 const team = (action, b) => post(Object.assign({ action, key }, b));
 assert.strictEqual(post({ action: 'ping', token: 'wrong' }).ok, false, 'wrong token rejected');
@@ -165,6 +165,27 @@ props.PLANS = JSON.stringify({ '2026-09-13': { community: C, lots: [['1', 'Justi
 assert(ctx.plans_()['2026-09-13'], 'legacy plans readable');
 own('plan', { community: C, date: '2026-10-25', lots: [] });
 assert(!('PLANS' in props) && props['PLAN_2026-09-13'], 'legacy plans moved to per-run keys');
+
+// team passcode: checked by the script, so the public page code cannot skip it
+r = own('saveAgents', { agents: ctx.agents_(), passcode: 'Verdana26' });
+assert.strictEqual(r.passcode, 'Verdana26', 'passcode saved and shown to the owner');
+const withPass = (action, b, pass) => post(Object.assign({ action, key, pass }, b));
+assert(/^PASSCODE_NEEDED/.test(withPass('teamView', {}).error), 'no passcode: asked for it');
+assert(/^PASSCODE_WRONG/.test(withPass('teamView', {}, 'nope').error), 'wrong passcode refused');
+assert(withPass('teamView', {}, 'verdana26 ').ok, 'right passcode works, ignoring case and spaces');
+assert(/^PASSCODE_/.test(withPass('markSent', { community: C, date: '2026-10-11', agent: 'Gita', lot: 2096, sent: false }).error), 'sent tick needs the passcode');
+assert(/^PASSCODE_/.test(withPass('zip', { community: C, date: '2026-10-11', agent: 'Gita', lot: 2096 }).error), 'zip needs the passcode');
+const agentKey = ctx.agents_()[0].key;
+assert(/^PASSCODE_/.test(post({ action: 'agentView', key: agentKey }).error), 'old per-agent links need it too');
+assert(post({ action: 'agentView', key: agentKey, pass: 'Verdana26' }).ok);
+for (let i = 0; i < 30; i++) withPass('teamView', {}, 'guess' + i);
+assert(/^PASSCODE_LOCKED/.test(withPass('teamView', {}, 'Verdana26').error), 'guessing pauses passcode checks');
+Object.keys(cache).forEach(k => { if (k === 'passfails') delete cache[k]; }); // ten minutes later
+assert(withPass('teamView', {}, 'Verdana26').ok, 'works again after the pause');
+own('saveAgents', { agents: ctx.agents_(), passcode: '' });
+assert(withPass('teamView', {}).ok, 'clearing the passcode opens the link again');
+r = own('saveAgents', { agents: ctx.agents_() });
+assert.strictEqual(r.passcode, '', 'saving without a passcode field leaves it alone');
 
 // expiry and wipe
 ctx.cleanup();

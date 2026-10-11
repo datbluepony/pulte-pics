@@ -45,10 +45,11 @@ function doPost(e) {
 }
 
 function route_(req) {
-  if (req.action === 'agentView') return agentView_(req);
+  if (req.action === 'agentView') { checkPasscode_(req); return agentView_(req); }
   // the team page: anyone holding the team link
   if (['teamView', 'markSent', 'zip'].indexOf(req.action) >= 0) {
     if (!req.key || req.key !== teamKey_()) throw new Error('This link is not valid. Ask your photographer for the current one.');
+    checkPasscode_(req);
     if (req.action === 'teamView') return teamView_(req);
     if (req.action === 'markSent') return markSent_(req);
     return zip_(req);
@@ -83,9 +84,25 @@ function teamKey_() {
   return key;
 }
 
+/**
+ * The agents' passcode, if Andrew set one. Every agent request must carry it.
+ * Repeated wrong guesses pause passcode checks for ten minutes, so it cannot be guessed by trying every number.
+ */
+function checkPasscode_(req) {
+  const code = PROPS.getProperty('PASSCODE');
+  if (!code) return;
+  const cache = CacheService.getScriptCache();
+  const fails = Number(cache.get('passfails') || 0);
+  if (fails >= 30) throw new Error('PASSCODE_LOCKED: Too many wrong passcodes. Try again in 10 minutes.');
+  if (String(req.pass || '').trim().toLowerCase() === code.trim().toLowerCase()) return;
+  if (req.pass) cache.put('passfails', String(fails + 1), 600);
+  throw new Error(req.pass ? 'PASSCODE_WRONG: That passcode is not right.' : 'PASSCODE_NEEDED: Enter the team passcode.');
+}
+
 function config_() {
   return {
-    version: 6,
+    version: 7,
+    passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
     agents: agents_(),
@@ -107,6 +124,10 @@ function saveAgents_(req) {
   PROPS.setProperty('AGENTS', JSON.stringify(agents));
   if (req.expireDays) PROPS.setProperty('EXPIRE_DAYS', String(Math.max(1, Number(req.expireDays))));
   if ('nextRun' in req) PROPS.setProperty('NEXT_RUN', String(req.nextRun || ''));
+  if ('passcode' in req) {
+    const code = String(req.passcode || '').trim();
+    if (code) PROPS.setProperty('PASSCODE', code); else PROPS.deleteProperty('PASSCODE');
+  }
   changed_();
   return config_();
 }

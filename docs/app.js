@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 21; // bump with docs/version.txt on every release
+const VERSION = 22; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -1098,6 +1098,7 @@ function renderSettings() {
   $('#set-token').value = settings.token;
   $('#set-expire').value = settings.expireDays;
   $('#set-next').value = settings.nextRun || '';
+  $('#set-pass').value = settings.passcode || '';
   $('#agent-list').innerHTML = agents.map((a, i) => `
     <div class="card">
       <div class="agent-row">
@@ -1118,7 +1119,7 @@ function renderSettings() {
   });
   $('#portal-links').innerHTML = !settings.url ? ''
     : settings.teamKey && settings.backend >= 3 ? '<h3 class="section">Agents\' page</h3>' +
-      `<div class="card team-link"><div class="grow"><b>One link for the whole team</b><div class="muted">They click their own name. It is the link in the "photos are complete" email.</div></div><button class="small" data-link="${esc(teamLink())}">Copy</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
+      `<div class="card team-link"><div class="grow"><b>One link for the whole team</b><div class="muted">They click their own name. It is the link in the "photos are complete" email.${settings.passcode ? '<br>Passcode: <b style="color:#fff">' + esc(settings.passcode) + '</b> (send it to them separately)' : ''}</div></div><button class="small" data-link="${esc(teamLink())}">Copy</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
     : '<div class="notice">The Google script needs updating before the agents\' page works: paste the new Code.gs, then Deploy, Manage deployments, Edit, New version. Then press Save and connect again.</div>';
 }
 const teamLink = () => new URL('team.html', location.href).href + '?u=' + encodeURIComponent(settings.url) + '&k=' + settings.teamKey;
@@ -1141,7 +1142,10 @@ $('#portal-links').addEventListener('click', async e => {
 
 /** Push agents, expiry and the next run date to Google, and learn the team link and script version. */
 async function syncConfig() {
-  const out = await api('saveAgents', { agents: agents, expireDays: settings.expireDays, nextRun: settings.nextRun || '' });
+  const body = { agents: agents, expireDays: settings.expireDays, nextRun: settings.nextRun || '' };
+  if (settings.passSet) body.passcode = settings.passcode || ''; // only once it has been typed on this phone
+  const out = await api('saveAgents', body);
+  if ('passcode' in out) settings.passcode = out.passcode;
   agents = out.agents;
   store.set('agents', agents);
   settings.teamKey = out.teamKey || '';
@@ -1167,7 +1171,7 @@ $('#btn-wipe').addEventListener('click', async () => {
 });
 
 $('#btn-save').addEventListener('click', async () => {
-  settings = Object.assign(settings, { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 13, nextRun: $('#set-next').value || '' });
+  settings = Object.assign(settings, { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 13, nextRun: $('#set-next').value || '', passcode: $('#set-pass').value.trim(), passSet: true });
   store.set('settings', settings);
   store.set('agents', agents);
   const msg = $('#set-msg');
