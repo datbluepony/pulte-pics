@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 18; // bump with docs/version.txt on every release
+const VERSION = 19; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -698,8 +698,65 @@ $('#lot-photos').addEventListener('click', async e => {
   }
 });
 
+/** The EXIF orientation tag of a JPEG (1 = stored upright), read from the file header. */
+function exifOrientation(buf) {
+  const v = new DataView(buf);
+  if (v.byteLength < 4 || v.getUint16(0) !== 0xFFD8) return 1;
+  let o = 2;
+  while (o + 4 < v.byteLength) {
+    const marker = v.getUint16(o), len = v.getUint16(o + 2);
+    if (marker === 0xFFE1 && o + 10 < v.byteLength && v.getUint32(o + 4) === 0x45786966) {
+      const t = o + 10, le = v.getUint16(t) === 0x4949;
+      const ifd = t + v.getUint32(t + 4, le);
+      if (ifd + 2 > v.byteLength) return 1;
+      const n = v.getUint16(ifd, le);
+      for (let i = 0; i < n; i++) {
+        const e = ifd + 2 + i * 12;
+        if (e + 10 > v.byteLength) break;
+        if (v.getUint16(e, le) === 0x0112) return v.getUint16(e + 8, le);
+      }
+      return 1;
+    }
+    if ((marker & 0xFF00) !== 0xFF00 || marker === 0xFFDA) break;
+    o += 2 + len;
+  }
+  return 1;
+}
+
+/**
+ * The photo with its rotation built into the pixels. Camera stills and library photos often come off the sensor
+ * sideways with only an orientation tag, which Google Drive's previews can ignore. Upright files go up untouched.
+ * landscape: also turn a tall picture on its side (camera photos are always landscape).
+ */
+async function bakeUpright(blob, landscape) {
+  const tagged = exifOrientation(await blob.slice(0, 131072).arrayBuffer()) > 1;
+  if (!tagged && !landscape) return blob;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode(); // the browser applies the orientation tag when it decodes
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const turn = landscape && h > w ? (flip ? -1 : 1) * (tilt || 1) : 0;
+    if (!tagged && !turn) return blob;
+    const c = document.createElement('canvas');
+    c.width = turn ? h : w; c.height = turn ? w : h;
+    const ctx = c.getContext('2d');
+    if (turn) { ctx.translate(c.width / 2, c.height / 2); ctx.rotate(turn === 1 ? -Math.PI / 2 : Math.PI / 2); ctx.drawImage(img, -w / 2, -h / 2); }
+    else ctx.drawImage(img, 0, 0);
+    return await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
+  } catch (e) {
+    return blob; // could not decode here (an unusual format): send it as it is
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 $('#lib').addEventListener('change', async e => {
-  for (const file of Array.from(e.target.files)) await queuePhoto(file, (file.name.split('.').pop() || 'jpg').toLowerCase());
+  for (const file of Array.from(e.target.files)) {
+    const fixed = await bakeUpright(file, false);
+    await queuePhoto(fixed, fixed === file ? (file.name.split('.').pop() || 'jpg').toLowerCase() : 'jpg');
+  }
   e.target.value = '';
   renderLot();
   pump();
@@ -899,8 +956,12 @@ $('#cam-shutter').addEventListener('click', async () => {
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
   let blob = null;
   // phones that offer a true still-photo capture (not iPhone, today) use it for full sensor quality
-  if (window.ImageCapture && stream && !c.turned) {
-    try { blob = await new ImageCapture(stream.getVideoTracks()[0]).takePhoto(); } catch (err) { blob = null; }
+  if (window.ImageCapture && stream) {
+    try {
+      // a full-quality still, turned to match what the photographer saw: landscape, sky up
+      blob = await new ImageCapture(stream.getVideoTracks()[0]).takePhoto();
+      blob = await bakeUpright(blob, c.width > c.height);
+    } catch (err) { blob = null; }
   }
   if (!blob) blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.97));
   await queuePhoto(blob, 'jpg', c);
