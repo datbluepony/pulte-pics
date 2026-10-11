@@ -259,3 +259,7 @@ nav .tabs button.on { color: var(--brand); }
 button.pulse { animation: ready 1.4s ease-in-out infinite; }
 @keyframes ready { 50% { box-shadow: 0 0 0 8px rgba(29, 138, 78, .18); } }
 @media (prefers-reduced-motion: reduce) { button.pulse { animation: none; } }
+
+/* flip saved photos if they come out upside down */
+#cam-flip { position: absolute; top: calc(env(safe-area-inset-top) + 8px); right: calc(env(safe-area-inset-right) + 12px); min-height: 36px; padding: 6px 14px; border-radius: 99px; background: rgba(0,0,0,.45); color: #fff; border-color: rgba(255,255,255,.45); font-size: 13px; box-shadow: none; }
+#cam-flip.on { background: #ffd60a; color: #000; border-color: #ffd60a; }

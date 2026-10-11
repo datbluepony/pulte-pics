@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 17; // bump with docs/version.txt on every release
+const VERSION = 18; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -741,7 +741,8 @@ $('#btn-done').addEventListener('click', async () => {
 
 let stream = null;
 let tilt = 0;     // which way the phone is turned: 1 = top to the left, -1 = top to the right, 0 = upright
-let gSign = Number(store.get('gSign', 0)); // +1 or -1: browsers disagree on the sign of gravity readings
+let sensed = false;  // the tilt sensor has answered this session
+let flip = !!store.get('flip', false); // photographer said saved photos came out upside down
 let lenses = [];                       // back cameras this phone offers: [{ id, label }]
 let lensId = store.get('lens', '');    // the one in use, remembered between lots
 const video = $('#cam-video');
@@ -765,31 +766,49 @@ async function findLenses() {
   $('#cam-lenses').innerHTML = lenses.length > 1 ? lenses.map(l => `<button data-lens="${esc(l.id)}" class="${l.id === (lensId || live) ? 'on' : ''}">${esc(l.label)}</button>`).join('') : '';
 }
 
-/** Read which way the phone is physically turned, even with rotation lock on. */
-function onMotion(e) {
-  const g = e.accelerationIncludingGravity;
-  if (!g || g.x == null || g.y == null) return;
-  if (!gSign) {
-    // learn the sign once while the phone is upright (it is, when "Take photos" is tapped)
-    if (Math.abs(g.y) > 7 && Math.abs(g.x) < 3) { gSign = g.y > 0 ? 1 : -1; store.set('gSign', gSign); }
-    else return;
-  }
-  const x = g.x * gSign, y = g.y * gSign;
-  const t = Math.abs(x) > Math.abs(y) + 1.5 ? (x > 0 ? 1 : -1) : Math.abs(y) > Math.abs(x) + 1.5 ? 0 : tilt;
+/** Turn the camera controls with the phone when the screen itself stays upright (rotation lock). */
+function setTilt(t) {
   if (t === tilt) return;
   tilt = t;
-  // controls follow the phone when the screen itself does not rotate
   const sideways = window.innerHeight > window.innerWidth;
   $('#camera').classList.toggle('tilt-l', sideways && tilt === 1);
   $('#camera').classList.toggle('tilt-r', sideways && tilt === -1);
+  showCamSize();
 }
 
-/** The frame turned so the picture is always level with the ground: a sideways phone gives a landscape photo. */
+/**
+ * Which way the phone is turned, from the tilt sensor: gamma near -90 means the top of the phone points left,
+ * near +90 means it points right. This reading has the same sign on iPhone and Android.
+ */
+function onOrient(e) {
+  if (e.gamma == null) return;
+  sensed = true;
+  if (e.gamma < -45) setTilt(1);
+  else if (e.gamma > 45) setTilt(-1);
+  else if (Math.abs(e.gamma) < 25) setTilt(0);
+}
+
+/** Backup reading from the accelerometer, only used when the tilt sensor gives nothing. */
+function onMotion(e) {
+  if (sensed) return;
+  const g = e.accelerationIncludingGravity;
+  if (!g || g.x == null || g.y == null) return;
+  // iPhone reports gravity with the opposite sign to Android
+  const sign = /iPhone|iPad|iPod/.test(navigator.userAgent) ? -1 : 1;
+  const x = g.x * sign, y = g.y * sign;
+  if (Math.abs(x) > Math.abs(y) + 1.5) setTilt(x > 0 ? 1 : -1);
+  else if (Math.abs(y) > Math.abs(x) + 1.5) setTilt(0);
+}
+
+/**
+ * The frame as it is saved. Photos are always landscape: a tall frame is turned on its side,
+ * toward whichever way the phone is held (top to the left when the phone cannot tell). Flip reverses it.
+ */
 function uprightFrame(src, w, h) {
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
-  // a tall frame from a phone held sideways (rotation lock, or the screen not yet turned) gets turned level
-  const turn = h > w ? (tilt || (window.innerWidth > window.innerHeight ? 1 : 0)) : 0;
+  let turn = h > w ? (tilt || 1) : 0;
+  if (turn && flip) turn = -turn;
   if (!turn) {
     c.width = w; c.height = h;
     ctx.drawImage(src, 0, 0, w, h);
@@ -804,13 +823,17 @@ function uprightFrame(src, w, h) {
 }
 
 async function openCamera() {
-  // iPhone only shares motion readings after a tap, and this runs straight from one
-  const ask = window.DeviceMotionEvent && DeviceMotionEvent.requestPermission ? DeviceMotionEvent.requestPermission().catch(() => 'denied') : Promise.resolve('granted');
+  // iPhone only shares tilt readings after a tap, and this runs straight from one: ask for both before anything waits
+  if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+  if (window.DeviceMotionEvent && DeviceMotionEvent.requestPermission) DeviceMotionEvent.requestPermission().catch(() => 'denied');
+  sensed = false;
+  window.addEventListener('deviceorientation', onOrient);
   window.addEventListener('devicemotion', onMotion);
-  ask.then(r => { if (r !== 'granted') $('#cam-top').textContent += ' · motion access off: photos are saved landscape'; });
   $('#camera').classList.remove('hide');
   $('#cam-count').textContent = lotOf(currentLot).count + ' saved';
   $('#cam-top').textContent = 'Lot ' + currentLot + ' · starting camera...';
+  $('#cam-flip').classList.toggle('on', flip);
+  $('#cam-flip').textContent = flip ? 'Flipped' : 'Flip';
   try {
     const size = { width: { ideal: 4032 }, height: { ideal: 3024 } };
     try {
@@ -845,12 +868,20 @@ async function sharpen(track) {
 }
 
 function showCamSize() {
+  if (!video.videoWidth) return;
   const mp = (video.videoWidth * video.videoHeight / 1e6).toFixed(1);
-  $('#cam-top').textContent = 'Lot ' + currentLot + ' · ' + video.videoWidth + ' × ' + video.videoHeight + ' (' + mp + ' MP)';
+  $('#cam-top').textContent = 'Lot ' + currentLot + ' · ' + mp + ' MP · saved landscape';
 }
+$('#cam-flip').addEventListener('click', () => {
+  flip = !flip;
+  store.set('flip', flip);
+  $('#cam-flip').classList.toggle('on', flip);
+  $('#cam-flip').textContent = flip ? 'Flipped' : 'Flip';
+});
 video.addEventListener('resize', () => { if (stream) showCamSize(); });
 
 function closeCamera() {
+  window.removeEventListener('deviceorientation', onOrient);
   window.removeEventListener('devicemotion', onMotion);
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null;
