@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 24; // bump with docs/version.txt on every release
+const VERSION = 25; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -243,8 +243,12 @@ document.querySelectorAll('nav .tabs button').forEach(b => b.addEventListener('c
 // ---------- run: start ----------
 
 function renderRun() {
-  const phase = run ? run.phase : 'start';
+  const phase = run ? run.phase : past ? 'past' : 'start';
   $('#run-start').classList.toggle('hide', phase !== 'start');
+  $('#past-picker').classList.toggle('hide', phase !== 'start');
+  $('#run-past').classList.toggle('hide', phase !== 'past');
+  if (phase === 'start') loadPastRuns();
+  if (phase === 'past') { renderPast(); $('#headsub').textContent = COMMUNITY + ' · ' + niceDate(past.date) + ' (past run)'; return; }
   $('#run-review').classList.toggle('hide', phase !== 'review');
   $('#run-route').classList.toggle('hide', phase !== 'route');
   $('#headsub').textContent = COMMUNITY + (run ? ' · ' + niceDate(run.date) : '');
@@ -355,6 +359,96 @@ $('#btn-discard').addEventListener('click', () => {
   run = null;
   saveRun();
   renderRun();
+});
+
+// ---------- past runs: read-only, from the same data the agents see ----------
+
+let past = null; // { date, community, lots: [{ lot, agent, files, stage, note, sent, pending }], order, paths }
+let pastOpen = null; // lot whose photos are expanded in the list
+
+async function loadPastRuns() {
+  if (!settings.url || (settings.backend || 0) < 9) return;
+  try {
+    const out = await api('teamView', {});
+    const dates = (out.runs || []).map(r => r.date);
+    $('#past-picker').classList.toggle('hide', !dates.length || !!run);
+    $('#past-date').innerHTML = dates.map(d => `<option value="${d}">${esc(niceDate(d))}</option>`).join('');
+  } catch (e) { $('#past-picker').classList.add('hide'); }
+}
+
+$('#btn-past').addEventListener('click', async () => {
+  const date = $('#past-date').value;
+  if (!date) return;
+  const btn = $('#btn-past');
+  btn.disabled = true; btn.textContent = 'Loading...';
+  try {
+    const out = await api('teamView', { date: date });
+    if (!out.run) throw new Error('That run has no photos.');
+    const lots = [];
+    out.run.agents.forEach(a => a.lots.forEach(l => lots.push(Object.assign({ agent: a.name }, l, { lot: Number(l.lot) }))));
+    past = { date: out.run.date, community: out.run.community, lots: lots, order: [], paths: {} };
+    // the route is re-planned from the lot list; it is saved on this phone so it only takes a moment once
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('pastRoute:' + past.date)); } catch (e) { saved = null; }
+    const nums = lots.filter(l => master.lots[l.lot]).map(l => l.lot);
+    if (saved && saved.order && saved.order.length === nums.length && saved.order.every(n => nums.indexOf(n) >= 0)) {
+      past.order = saved.order; past.paths = saved.paths || {};
+    } else {
+      btn.textContent = 'Drawing the route...';
+      await sleep(30);
+      const plan = await Route.plan(nums.map(n => master.lots[n]), START, master.grid.cell);
+      past.order = plan.order.map(i => nums[i]);
+      plan.order.forEach((i, k) => { past.paths[nums[i]] = plan.paths[k]; });
+      try { localStorage.setItem('pastRoute:' + past.date, JSON.stringify({ order: past.order, paths: past.paths })); } catch (e) { /* only a convenience */ }
+    }
+    lots.filter(l => !master.lots[l.lot]).forEach(l => past.order.push(l.lot));
+    pastOpen = null;
+    renderRun();
+    window.scrollTo(0, 0);
+  } catch (e) {
+    alert('Could not load that run: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Show';
+});
+$('#past-back').addEventListener('click', () => { past = null; renderRun(); });
+
+const pastLot = n => past.lots.find(l => l.lot === n);
+
+function renderPast() {
+  const shot = past.lots.filter(l => l.files.length).length, total = past.lots.length;
+  $('#past-title').textContent = niceDate(past.date) + ' run';
+  $('#past-pct').textContent = shot + ' of ' + total + ' photographed';
+  $('#past-bar').style.width = (shot / Math.max(1, total) * 100) + '%';
+  $('#past-sum').innerHTML = agents.filter(a => past.lots.some(l => l.agent === a.name)).map(a => {
+    const mine = past.lots.filter(l => l.agent === a.name);
+    return `<span class="achip"><span class="dot" style="background:${esc(a.color)}"></span>${esc(a.name)} <b>${mine.filter(l => l.files.length).length}/${mine.length}</b></span>`;
+  }).join('');
+  $('#past-list').innerHTML = past.order.map((n, i) => {
+    const l = pastLot(n);
+    if (!l) return '';
+    const pill = l.files.length ? `<span class="pill done">${l.files.length} photo${l.files.length === 1 ? '' : 's'}</span>` : '<span class="pill part">No photos</span>';
+    const open = pastOpen === n ? `<div class="past-photos">
+        ${l.stage ? `<div class="muted"><b>${esc(l.stage)}</b>${l.sent ? ' · sent to customer' : ''}</div>` : ''}
+        ${l.note ? `<div class="preview" style="margin:8px 0"><div class="preview-label">Customer note</div>${esc(l.note)}</div>` : ''}
+        <div class="fix-grid">${l.files.map(f => `<a class="fix-shot" href="https://drive.google.com/file/d/${encodeURIComponent(f.id)}/view" target="_blank" rel="noopener"><img loading="lazy" alt="${esc(f.name)}" src="https://drive.google.com/thumbnail?id=${encodeURIComponent(f.id)}&sz=w300"></a>`).join('')}</div>
+      </div>` : '';
+    return `<div class="card lot-row past ${l.files.length ? 'done' : ''}" data-past="${n}">
+      <div class="row" style="width:100%">
+        <span class="order">${l.files.length ? '✓' : i + 1}</span>
+        <span class="num">${n}</span>
+        <span class="grow who"><span class="dot" style="background:${esc(agentColor(l.agent))}"></span>${esc(l.agent)}</span>
+        ${pill}
+      </div>${open}
+    </div>`;
+  }).join('');
+}
+$('#past-list').addEventListener('click', e => {
+  if (e.target.closest('a')) return; // a photo opens in Drive
+  const row = e.target.closest('[data-past]');
+  if (!row) return;
+  const n = Number(row.dataset.past);
+  pastOpen = pastOpen === n ? null : n;
+  renderPast();
 });
 
 // ---------- where am I ----------
@@ -1058,12 +1152,21 @@ function centerOn(lot) {
   wrap.scrollTop = y / master.image.h * h - wrap.clientHeight / 2;
 }
 
+/** What the map shows: the run in progress, or the past run being looked at. */
+function mapRun() {
+  if (run && run.phase === 'route') return { lots: run.lots, order: run.order, paths: run.paths, isDone: n => lotOf(n).done, live: true };
+  if (past) return { lots: past.lots, order: past.order, paths: past.paths, isDone: n => !!(pastLot(n) && pastLot(n).files.length), live: false };
+  return null;
+}
+
 function renderMap(center) {
   const inner = $('#mapinner');
-  const next = run && run.phase === 'route' ? nextLot() : null;
-  const pins = !run ? '' : run.lots.filter(l => master.lots[l.lot]).map(l => {
+  const R = mapRun();
+  const next = R && R.live ? nextLot() : null;
+  const pins = !R ? '' : R.lots.filter(l => master.lots[l.lot]).map(l => {
     const [x, y] = master.lots[l.lot];
-    const order = run.order.indexOf(l.lot) + 1;
+    const order = R.order.indexOf(l.lot) + 1;
+    l = Object.assign({}, l, { done: R.isDone(l.lot) });
     return `<div class="pin ${l.done ? 'done' : ''} ${l.lot === next ? 'next' : ''}" data-lot="${l.lot}"
       style="left:${(x / master.image.w * 100).toFixed(2)}%;top:${(y / master.image.h * 100).toFixed(2)}%;background:${esc(agentColor(l.agent))}">${order || ''}</div>`;
   }).join('');
@@ -1071,20 +1174,23 @@ function renderMap(center) {
   const meDot = me ? `<div class="me" style="left:${(me[0] / master.image.w * 100).toFixed(2)}%;top:${(me[1] / master.image.h * 100).toFixed(2)}%"></div>` : '';
   // the drive along the roads: gray where you have been, blue for what is left
   let line = '';
-  if (run && run.phase === 'route' && run.paths) {
-    const legs = run.order.filter(n => run.paths[n]);
-    const draw = (done, color) => legs.filter(n => lotOf(n).done === done).map(n => polyline(run.paths[n], '#fff', 5) + polyline(run.paths[n], color, 3)).join('');
+  if (R && R.paths) {
+    const legs = R.order.filter(n => R.paths[n]);
+    const draw = (done, color) => legs.filter(n => R.isDone(n) === done).map(n => polyline(R.paths[n], '#fff', 5) + polyline(R.paths[n], color, 3)).join('');
     line = `<svg class="routeline" viewBox="0 0 ${master.image.w} ${master.image.h}" preserveAspectRatio="none">${draw(true, '#7b8794')}${draw(false, '#1a73e8')}</svg>`;
   }
   inner.innerHTML = '<img src="map.jpg" alt="Verdana Village site map">' + line + pins + meDot;
   setZoom(zoom);
-  if (center) centerOn(next || (run && run.lots[0] && run.lots[0].lot));
+  if (center) centerOn(next || (R && R.order[0]));
 }
 $('#zoom-in').addEventListener('click', () => setZoom(zoom * 1.6));
 $('#zoom-out').addEventListener('click', () => setZoom(zoom / 1.6));
-$('#zoom-next').addEventListener('click', () => { setZoom(Math.max(zoom, 6)); centerOn(nextLot()); });
+$('#zoom-next').addEventListener('click', () => { setZoom(Math.max(zoom, 6)); const R = mapRun(); centerOn(R && R.live ? nextLot() : R && R.order[0]); });
 $('#mapinner').addEventListener('click', e => {
-  if (e.target.dataset.lot && run.phase === 'route') openLot(Number(e.target.dataset.lot));
+  if (!e.target.dataset.lot) return;
+  const n = Number(e.target.dataset.lot);
+  if (run && run.phase === 'route') openLot(n);
+  else if (past) { pastOpen = n; show('run'); renderPast(); const row = document.querySelector('[data-past="' + n + '"]'); if (row) row.scrollIntoView({ block: 'center' }); }
 });
 
 // pinch to zoom the map itself (not the page), so pins and the route line stay thin

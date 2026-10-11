@@ -11,7 +11,7 @@
 <title>Pulte Pics</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.png">
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 <header>
@@ -51,6 +51,25 @@
         </div>
         <p class="muted center" id="read-msg"></p>
       </div>
+    </div>
+
+    <div id="past-picker" class="hide">
+      <h3 class="section">Past runs</h3>
+      <div class="card">
+        <p class="muted" style="margin-top:0">See a finished run's route and photos, exactly as the agents see them.</p>
+        <div class="row"><select id="past-date" class="grow" aria-label="Past photo run"></select><button class="primary" id="btn-past">Show</button></div>
+      </div>
+    </div>
+
+    <div id="run-past" class="hide">
+      <button class="back" id="past-back">&larr; New photo run</button>
+      <div class="card summary">
+        <div class="row between"><h2 class="title" id="past-title">Past run</h2><span class="muted" id="past-pct"></span></div>
+        <div class="progress"><i id="past-bar"></i></div>
+        <div id="past-sum" class="agent-chips"></div>
+        <p class="muted" style="margin-bottom:0">Read-only, from Google: the same photos the agents see. Open the Map tab to see the route.</p>
+      </div>
+      <div id="past-list"></div>
     </div>
 
     <div id="run-review" class="hide">
@@ -238,8 +257,8 @@
   </div>
 </nav>
 
-<script src="route.js?v=24"></script>
-<script src="mapread.js?v=24"></script>
-<script src="app.js?v=24"></script>
+<script src="route.js?v=25"></script>
+<script src="mapread.js?v=25"></script>
+<script src="app.js?v=25"></script>
 </body>
 </html>

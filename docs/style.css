@@ -291,3 +291,9 @@ button.pulse { animation: ready 1.4s ease-in-out infinite; }
 .fix-shot b { position: absolute; left: 4px; bottom: 4px; font-size: 12px; padding: 2px 7px; border-radius: 99px; background: var(--accent); color: #000; }
 .fix-shot b:empty { display: none; }
 .fix-shot.fixed b { background: var(--good); color: #fff; }
+
+/* past runs */
+.lot-row.past { flex-direction: column; align-items: stretch; }
+.lot-row.past.done { opacity: 1; }
+.past-photos { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.past-photos .fix-shot { display: block; }
