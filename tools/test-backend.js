@@ -50,7 +50,14 @@ const ctx = {
     newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
     zip: (blobs, name) => ({ bytes: Buffer.concat(blobs.map(b => b.getBytes ? b.getBytes() : b.bytes)), mime: 'application/zip', name }),
     base64Encode: b => Buffer.from(b).toString('base64'),
+    formatDate: (d, tz, fmt) => {
+      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).formatToParts(d);
+      const get = t => parts.find(x => x.type === t).value;
+      if (fmt === 'u') return String(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(get('weekday')) + 1);
+      return get('year') + '-' + get('month') + '-' + get('day');
+    },
   },
+  Session: { getScriptTimeZone: () => 'America/New_York' },
   MailApp: { sendEmail: m => mail.push(m), getRemainingDailyQuota: () => 100 },
   ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyDays: () => ({ atHour: () => ({ create() {} }) }) }) }) },
   ContentService: { createTextOutput: t => ({ text: t, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
@@ -69,7 +76,7 @@ const jpg = Buffer.from('fake-jpeg').toString('base64');
 
 // connect with three agents
 let r = own('saveAgents', { agents: [{ name: 'Justin', color: '#46b1e1', email: 'j@x' }, { name: 'Gita', color: '#f2cfee', email: '' }, { name: 'Derek', color: '#ffff00', email: 'd@x' }], expireDays: 13, nextRun: '2026-10-25' });
-assert(r.ok && r.version >= 10 && r.teamKey, 'saveAgents');
+assert(r.ok && r.version >= 11 && r.teamKey, 'saveAgents');
 const key = r.teamKey;
 const team = (action, b) => post(Object.assign({ action, key }, b));
 assert.strictEqual(post({ action: 'ping', token: 'wrong' }).ok, false, 'wrong token rejected');
@@ -205,6 +212,40 @@ assert(del1.ok && files[agentRep.id].trashed, 'agent page can delete a photo (to
 const l2136 = team('teamView', { date: '2026-10-11' }).run.agents.find(a => a.name === 'Derek').lots.find(l => l.lot === '2136');
 assert(!l2136 || !l2136.files.some(f => f.id === agentRep.id), 'deleted photo gone from the page');
 assert(!team('trashPhoto', { id: stranger.id }).ok && !stranger.trashed, 'cannot delete files outside Pulte Pics');
+
+// next-run lot list: separate from the run's photos and rankings
+const todayNY = ctx.Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+own('saveAgents', { agents: ctx.agents_(), nextRun: '2099-01-01' });  // a future run: list open
+let nl = team('nextList', {});
+assert(nl.ok && !nl.locked && nl.basedOn === '2026-10-25', 'list starts from the latest run');
+own('plan', { community: C, date: '2026-10-11', lots: [{ lot: 2068, agent: 'Justin' }, { lot: 1751, agent: 'Justin' }, { lot: 2096, agent: 'Gita' }, { lot: 30, agent: 'Derek' }] });
+// make 2026-10-11 the latest plan for this part of the test
+Object.keys(props).filter(k => k.indexOf('PLAN_') === 0 && k > 'PLAN_2026-10-11').forEach(k => delete props[k]);
+delete props.NEXT_LIST;
+const rankBefore = JSON.stringify(team('teamView', { date: '2026-10-11' }).run.agents.map(a => a.name + ':' + a.lots.length));
+const filesBefore = JSON.stringify(Object.values(files).map(f => f.id + f.trashed).sort());
+nl = team('nextList', {});
+assert.deepStrictEqual(nl.lots.map(x => x.join(':')), ['2068:Justin', '1751:Justin', '2096:Gita', '30:Derek'].sort((a, b) => Number(a.split(':')[0]) - Number(b.split(':')[0])), 'seeded from the Oct 11 lot list');
+nl = team('editNext', { op: 'remove', lot: 2068, by: 'Justin' });
+assert(nl.ok && !nl.lots.some(x => x[0] === '2068') && nl.changes[0].op === 'remove' && nl.changes[0].by === 'Justin', 'remove a finished lot');
+nl = team('editNext', { op: 'add', lot: 2210, agent: 'Gita', by: 'Justin' });
+assert(nl.lots.some(x => x.join(':') === '2210:Gita') && nl.changes[0].op === 'add', 'add a lot for someone else');
+nl = team('editNext', { op: 'add', lot: 30, agent: 'Justin', by: 'Justin' });
+assert(nl.lots.some(x => x.join(':') === '30:Justin') && nl.changes[0].op === 'move' && nl.changes[0].from === 'Derek', 'a lot already listed moves to the new agent');
+assert(!team('editNext', { op: 'add', lot: 9999, agent: 'Gita' }).ok, 'lots off the map refused');
+assert(!team('editNext', { op: 'add', lot: 'abc', agent: 'Gita' }).ok, 'nonsense refused');
+assert(!team('editNext', { op: 'add', lot: 500, agent: 'Nobody' }).ok, 'unknown agent refused');
+assert.strictEqual(team('editNext', { op: 'remove', lot: 1234 }).lots.length, nl.lots.length, 'removing a lot not on the list changes nothing');
+assert.strictEqual(JSON.stringify(team('teamView', { date: '2026-10-11' }).run.agents.map(a => a.name + ':' + a.lots.length)), rankBefore, 'rankings for the shot run unchanged');
+assert.strictEqual(JSON.stringify(Object.values(files).map(f => f.id + f.trashed).sort()), filesBefore, 'no photo touched');
+assert(own('nextList', {}).lots.some(x => x.join(':') === '2210:Gita'), 'photographer sees the same list');
+own('saveAgents', { agents: ctx.agents_(), nextRun: todayNY });  // run day: locked
+assert(team('nextList', {}).locked && !team('editNext', { op: 'add', lot: 600, agent: 'Gita' }).ok, 'locked on the day of the run');
+own('saveAgents', { agents: ctx.agents_(), nextRun: '2099-01-01' });
+own('plan', { community: C, date: '2026-10-25', lots: [{ lot: 2210, agent: 'Gita' }] });
+nl = team('nextList', {});
+assert(nl.basedOn === '2026-10-25' && nl.lots.length === 1 && !nl.changes.length, 'after the next run is shot, the list starts over from it');
+assert(props.NEXT_LIST === undefined || props.NEXT_LIST.length < 9000, 'list stays small');
 
 // team passcode: checked by the script, so the public page code cannot skip it
 r = own('saveAgents', { agents: ctx.agents_(), passcode: 'Verdana26' });

@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 25; // bump with docs/version.txt on every release
+const VERSION = 26; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -247,7 +247,8 @@ function renderRun() {
   $('#run-start').classList.toggle('hide', phase !== 'start');
   $('#past-picker').classList.toggle('hide', phase !== 'start');
   $('#run-past').classList.toggle('hide', phase !== 'past');
-  if (phase === 'start') loadPastRuns();
+  if (phase === 'start') { loadPastRuns(); loadNextList(); }
+  else $('#next-list-card').classList.add('hide');
   if (phase === 'past') { renderPast(); $('#headsub').textContent = COMMUNITY + ' · ' + niceDate(past.date) + ' (past run)'; return; }
   $('#run-review').classList.toggle('hide', phase !== 'review');
   $('#run-route').classList.toggle('hide', phase !== 'route');
@@ -359,6 +360,37 @@ $('#btn-discard').addEventListener('click', () => {
   run = null;
   saveRun();
   renderRun();
+});
+
+// ---------- start the next run from the agents' list ----------
+
+let nextList = null;
+
+async function loadNextList() {
+  $('#next-list-card').classList.add('hide');
+  if (!settings.url || (settings.backend || 0) < 11) return;
+  try {
+    nextList = await api('nextList', {});
+    if (!nextList.lots.length) return;
+    const by = {};
+    nextList.lots.forEach(p => { by[p[1]] = (by[p[1]] || 0) + 1; });
+    $('#next-list-sum').innerHTML = '<b>' + nextList.lots.length + ' lots</b>: ' + Object.keys(by).map(n => esc(n) + ' ' + by[n]).join(', ') + '.';
+    const verb = { add: 'added', remove: 'removed', move: 'moved' };
+    const changes = (nextList.changes || []).slice().reverse();
+    $('#next-list-changes').innerHTML = changes.length
+      ? 'Changes since the last run: ' + changes.map(c => esc(c.by || 'someone') + ' ' + verb[c.op] + ' ' + esc(c.lot) + (c.op === 'move' ? ' to ' + esc(c.agent) : c.op === 'add' && c.agent !== c.by ? ' for ' + esc(c.agent) : '')).join('; ') + '.'
+      : 'No changes since the last run.';
+    $('#next-list-card').classList.remove('hide');
+  } catch (e) { /* the map upload still works */ }
+}
+
+$('#btn-next-list').addEventListener('click', () => {
+  if (!nextList) return;
+  const names = agents.map(g => g.name);
+  const lots = nextList.lots.filter(p => master.lots[p[0]]).map(p => blankLot(Number(p[0]), names.indexOf(p[1]) >= 0 ? p[1] : ''));
+  const verb = { add: 'added', remove: 'removed', move: 'moved' };
+  const notes = (nextList.changes || []).slice().reverse().map(c => 'From the agents: ' + (c.by || 'someone') + ' ' + verb[c.op] + ' lot ' + c.lot + (c.op === 'move' ? ' to ' + c.agent : c.op === 'add' && c.agent !== c.by ? ' for ' + c.agent : '') + '.');
+  newRun(lots, notes);
 });
 
 // ---------- past runs: read-only, from the same data the agents see ----------

@@ -249,6 +249,49 @@ body { background-color: var(--porcelain); background-image: url("data:image/svg
 #msg .empty span:not(.empty-ico) { color: var(--muted); font-weight: 500; }
 #msg { animation: rise .5s cubic-bezier(.2, .75, .2, 1) both; }
 
+/* ---------- next run lots ---------- */
+.tabs2 { display: flex; gap: 6px; margin: 18px 0 4px; padding: 5px; background: var(--white); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: fit-content; max-width: 100%; }
+.tabs2 button { border: 0; background: none; border-radius: 11px; padding: 11px 18px; color: var(--muted); font-size: 14px; box-shadow: none; }
+.tabs2 button.on { background: var(--navy); color: #fff; }
+.next-head { display: flex; align-items: center; gap: 16px; padding: 20px 22px; margin-top: 18px; flex-wrap: wrap; }
+.step-label { font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+.next-head h3 { font: 600 28px/1.15 var(--display); margin: 4px 0 6px; }
+.next-head p { margin: 0; }
+.lockpill { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 13px; padding: 5px 11px; border-radius: 99px; background: var(--good-soft); color: var(--good); }
+.lockpill.locked { background: #fde9e7; color: #a4321f; }
+.next-map { margin-top: 14px; padding: 10px; overflow: hidden; }
+#next-map { position: relative; overflow: hidden; border-radius: 14px; background: #d9e6cf; }
+#next-map img.base { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; }
+.npin { position: absolute; transform: translate(-50%, -50%); padding: 3px 7px; border-radius: 99px; font: 800 11px/1 var(--ui); color: var(--ink); background: var(--c); border: 1.5px solid rgba(15, 29, 42, .7); box-shadow: 0 2px 6px rgba(0, 0, 0, .25); white-space: nowrap; cursor: default; }
+.npin.mine { z-index: 2; }
+.npin.flash { animation: flashpin 1.2s ease 2; }
+@keyframes flashpin { 50% { transform: translate(-50%, -50%) scale(1.5); } }
+.next-grid { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+.next-add, .next-list, .next-log { padding: 22px; }
+.next-grid h4, .next-log h4 { font: 600 20px/1.2 var(--display); margin: 0 0 4px; }
+.next-grid .muted { font-size: 14px; margin: 0 0 14px; }
+#add-form { display: grid; gap: 10px; }
+#add-form input, #add-form select { font: 600 16px/1 var(--ui); padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fafbfc; color: var(--ink); }
+#add-form input { font-size: 20px; letter-spacing: .08em; }
+#add-form input:focus, #add-form select:focus { outline: none; border-color: var(--navy); background: #fff; }
+.add-msg { min-height: 22px; margin-top: 10px; font-size: 14px; font-weight: 700; }
+.add-msg.ok { color: var(--good); } .add-msg.bad { color: #a4321f; }
+#next-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.nrow { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.nrow b { font: 600 20px/1 var(--display); }
+.nrow .who-mini { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.nrow .grow { min-width: 0; }
+.nrow button { padding: 7px 10px; font-size: 12px; border-radius: 10px; }
+.nrow button:hover { background: #fde9e7; border-color: #f2c4bd; color: #a4321f; }
+.nrow.new { border-color: #c3dbef; background: #f4f9fd; }
+.next-log { margin-top: 16px; }
+.logline { display: flex; gap: 10px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.logline:first-of-type { border-top: 0; }
+.logline time { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.tag { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: .06em; }
+.tag.add { background: var(--good-soft); color: var(--good); } .tag.remove { background: #fde9e7; color: #a4321f; } .tag.move { background: var(--gold-soft); color: #8a6a1f; }
+@media (max-width: 760px) { .next-grid { grid-template-columns: 1fr; } .tabs2 { width: 100%; } .tabs2 button { flex: 1; padding: 11px 8px; } }
+
 footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- photo viewer ---------- */
@@ -359,8 +402,45 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
       <div class="search"><input id="find" inputmode="numeric" placeholder="Find a lot" aria-label="Find a lot"></div>
       <a class="btn" id="drive" target="_blank" rel="noopener">All in Drive</a>
     </div>
-    <div class="tiles" id="tiles"></div>
-    <div id="lots"></div>
+    <div class="tabs2" id="agent-tabs" role="tablist">
+      <button data-tab="photos" class="on" role="tab">Photos from this run</button>
+      <button data-tab="next" role="tab">Next run lots</button>
+    </div>
+    <div id="tab-photos">
+      <div class="tiles" id="tiles"></div>
+      <div id="lots"></div>
+    </div>
+    <div id="tab-next" class="hide">
+      <div class="card next-head">
+        <div class="grow">
+          <span class="step-label">Next photo run</span>
+          <h3 id="next-title">Lots for the next run</h3>
+          <p class="muted" id="next-status"></p>
+        </div>
+        <div class="seg" id="next-who"><button data-w="me" class="on">Mine</button><button data-w="all">Everyone</button></div>
+      </div>
+      <div class="card next-map"><div id="next-map"><div class="muted" style="padding:18px">Loading the map...</div></div></div>
+      <div class="next-grid">
+        <div class="card next-add">
+          <h4>Add a lot</h4>
+          <p class="muted">New homes to photograph next run. You can add a lot for anyone.</p>
+          <form id="add-form" autocomplete="off">
+            <label for="add-lot" class="visually-hidden">Lot number</label>
+            <input id="add-lot" inputmode="numeric" placeholder="Lot number" maxlength="5">
+            <label for="add-agent" class="visually-hidden">Whose lot</label>
+            <select id="add-agent"></select>
+            <button class="primary" id="add-go" type="submit">Add lot</button>
+          </form>
+          <div class="add-msg" id="add-msg" role="status"></div>
+        </div>
+        <div class="card next-list">
+          <h4 id="next-count">Lots</h4>
+          <p class="muted">Remove a lot when it no longer needs photos. This run's photos are not affected.</p>
+          <div id="next-rows"></div>
+        </div>
+      </div>
+      <div class="card next-log"><h4>Recent changes</h4><div id="next-log"></div></div>
+    </div>
   </section>
 
   <a class="story" id="story" href="about.html">
@@ -604,8 +684,145 @@ function home() {
   if (motionOK()) rise([$('#story')]);
 }
 
+// ---------- next run lots ----------
+
+let nextData = null;          // { lots: [[lot, agent]], changes, locked, nextRun, basedOn }
+let nextWho = 'me';           // map and list: my lots or everyone's
+let siteMap = null;           // lot positions on the master map (lots.json)
+let lastAdded = '';
+
+const loadSiteMap = () => siteMap ? Promise.resolve(siteMap) : fetch('lots.json').then(r => r.json()).then(m => (siteMap = m));
+const agentByName = n => (view.run.agents.find(a => a.name === n) || {});
+const colorOf = n => agentByName(n).color || '#cccccc';
+
+function showTab(tab) {
+  document.querySelectorAll('#agent-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('#tab-photos').classList.toggle('hide', tab !== 'photos');
+  $('#tab-next').classList.toggle('hide', tab !== 'next');
+  // the photo filters only apply to photos
+  $('#filter').classList.toggle('hide', tab !== 'photos');
+  $('.bar .search').classList.toggle('hide', tab !== 'photos');
+  if (tab === 'next') loadNext();
+}
+$('#agent-tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
+
+async function loadNext() {
+  $('#next-status').textContent = 'Loading...';
+  try {
+    const [list] = await Promise.all([call('nextList', {}), loadSiteMap()]);
+    nextData = list;
+    renderNext();
+  } catch (err) {
+    $('#next-status').textContent = /Unknown action|owner token/.test(err.message) ? 'Coming soon: Andrew is finishing the setup.' : 'Could not load the list: ' + err.message;
+  }
+}
+
+function renderNext() {
+  const d = nextData;
+  const when = d.nextRun ? new Date(d.nextRun + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : '';
+  $('#next-title').textContent = when ? 'Lots for the ' + when + ' run' : 'Lots for the next run';
+  $('#next-status').innerHTML = d.locked
+    ? '<span class="lockpill locked">&#128274; Locked</span> The photo run is today, so the list is closed. It opens again tomorrow.'
+    : '<span class="lockpill">&#9679; Open</span> Changes close at midnight the night before the run.';
+  const shown = d.lots.filter(p => nextWho === 'all' || p[1] === me);
+  const mine = d.lots.filter(p => p[1] === me).length;
+  $('#next-count').textContent = nextWho === 'all' ? 'Everyone (' + d.lots.length + ' lots)' : 'Your lots (' + mine + ')';
+  const newSet = new Set((d.changes || []).filter(c => c.op !== 'remove').map(c => c.lot));
+  $('#next-rows').innerHTML = shown.map(p => `
+    <div class="nrow ${newSet.has(p[0]) ? 'new' : ''}" data-lot="${esc(p[0])}">
+      <div class="grow"><b>${esc(p[0])}</b><div class="who-mini"><span class="dot" style="background:${esc(colorOf(p[1]))}"></span>${esc(p[1])}${newSet.has(p[0]) ? ' · new' : ''}</div></div>
+      ${d.locked ? '' : `<button data-remove="${esc(p[0])}" title="Remove from the next run">Remove</button>`}
+    </div>`).join('') || '<p class="muted">No lots yet. Add one on the left.</p>';
+  $('#add-agent').innerHTML = view.run.agents.map(a => `<option ${a.name === me ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+  ['#add-lot', '#add-agent', '#add-go'].forEach(q => { $(q).disabled = d.locked; });
+  const verb = { add: 'added', remove: 'removed', move: 'moved' };
+  $('#next-log').innerHTML = (d.changes || []).slice(0, 12).map(c => `
+    <div class="logline"><span class="tag ${c.op}">${verb[c.op]}</span>
+      <span><b>${esc(c.by || 'Someone')}</b> ${c.op === 'remove' ? 'removed lot ' + esc(c.lot) + ' (' + esc(c.agent) + ')' : c.op === 'move' ? 'moved lot ' + esc(c.lot) + ' from ' + esc(c.from) + ' to ' + esc(c.agent) : 'added lot ' + esc(c.lot) + (c.agent !== c.by ? ' for ' + esc(c.agent) : '')}</span>
+      <time>${esc(new Date(c.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</time></div>`).join('') || '<p class="muted" style="margin:0">No changes yet since the last run.</p>';
+  drawNextMap(shown);
+}
+
+/** The site map cropped to the lots being shown, with a labelled pin for each. */
+function drawNextMap(shown) {
+  const box = $('#next-map');
+  if (!siteMap) return;
+  const pts = shown.map(p => ({ lot: p[0], agent: p[1], at: siteMap.lots[p[0]] })).filter(p => p.at);
+  const W = box.clientWidth || 600;
+  let x0 = 0, y0 = 0, x1 = siteMap.image.w, y1 = siteMap.image.h;
+  if (pts.length) {
+    x0 = Math.min(...pts.map(p => p.at[0])); x1 = Math.max(...pts.map(p => p.at[0]));
+    y0 = Math.min(...pts.map(p => p.at[1])); y1 = Math.max(...pts.map(p => p.at[1]));
+    const pad = 70, minW = 520, minH = 300;
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const bw = Math.max(minW, x1 - x0 + pad * 2), bh = Math.max(minH, y1 - y0 + pad * 2);
+    x0 = cx - bw / 2; x1 = cx + bw / 2; y0 = cy - bh / 2; y1 = cy + bh / 2;
+  }
+  const scale = Math.min(1.4, W / (x1 - x0));
+  const H = Math.min(520, Math.max(260, (y1 - y0) * scale));
+  box.style.height = H + 'px';
+  const ox = (W - (x1 - x0) * scale) / 2 - x0 * scale, oy = (H - (y1 - y0) * scale) / 2 - y0 * scale;
+  box.innerHTML = `<img class="base" src="map.jpg" alt="Verdana Village site map" style="width:${siteMap.image.w * scale}px;left:${ox}px;top:${oy}px">` +
+    pts.map(p => `<span class="npin ${p.agent === me ? 'mine' : ''} ${p.lot === lastAdded ? 'flash' : ''}" style="--c:${esc(colorOf(p.agent))};left:${ox + p.at[0] * scale}px;top:${oy + p.at[1] * scale}px" title="Lot ${esc(p.lot)} · ${esc(p.agent)}">${esc(p.lot)}</span>`).join('');
+}
+
+$('#next-who').addEventListener('click', e => {
+  const b = e.target.closest('[data-w]');
+  if (!b || !nextData) return;
+  nextWho = b.dataset.w;
+  document.querySelectorAll('#next-who button').forEach(x => x.classList.toggle('on', x === b));
+  renderNext();
+});
+
+$('#add-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!nextData || nextData.locked) return;
+  const msg = $('#add-msg');
+  const lot = String(Number($('#add-lot').value.trim()));
+  const agent = $('#add-agent').value;
+  msg.className = 'add-msg bad';
+  if (!siteMap || !siteMap.lots[lot]) { msg.textContent = 'Lot ' + ($('#add-lot').value.trim() || '?') + ' is not on the Verdana Village map. Check the number.'; return; }
+  const already = nextData.lots.find(p => p[0] === lot);
+  if (already && already[1] === agent) { msg.textContent = 'Lot ' + lot + ' is already on ' + agent + "'s list."; return; }
+  if (already && !confirm('Lot ' + lot + ' is on ' + already[1] + "'s list. Move it to " + agent + '?')) return;
+  $('#add-go').disabled = true;
+  try {
+    nextData = await call('editNext', { op: 'add', lot: lot, agent: agent, by: me });
+    lastAdded = lot;
+    if (agent !== me && nextWho === 'me') { nextWho = 'all'; document.querySelectorAll('#next-who button').forEach(x => x.classList.toggle('on', x.dataset.w === 'all')); }
+    renderNext();
+    $('#add-lot').value = '';
+    msg.className = 'add-msg ok';
+    msg.textContent = (already ? 'Moved lot ' + lot + ' to ' + agent : 'Added lot ' + lot + (agent !== me ? ' for ' + agent : '')) + '.';
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+  $('#add-go').disabled = !!(nextData && nextData.locked);
+  setTimeout(() => { lastAdded = ''; }, 3000);
+});
+
+$('#next-rows').addEventListener('click', async e => {
+  const b = e.target.closest('[data-remove]');
+  if (!b) return;
+  const lot = b.dataset.remove;
+  const owner = (nextData.lots.find(p => p[0] === lot) || [])[1];
+  if (!confirm('Remove lot ' + lot + (owner && owner !== me ? ' (' + owner + ')' : '') + ' from the next run? Its photos from this run stay as they are.')) return;
+  b.disabled = true; b.textContent = 'Removing...';
+  try {
+    nextData = await call('editNext', { op: 'remove', lot: lot, by: me });
+    renderNext();
+    $('#add-msg').className = 'add-msg ok';
+    $('#add-msg').textContent = 'Removed lot ' + lot + '.';
+  } catch (err) {
+    alert('Could not remove it: ' + err.message);
+    b.disabled = false; b.textContent = 'Remove';
+  }
+});
+window.addEventListener('resize', () => { if (nextData && !$('#tab-next').classList.contains('hide')) drawNextMap(nextData.lots.filter(p => nextWho === 'all' || p[1] === me)); });
+
 function open(name) {
   me = name;
+  showTab('photos');
   remember.set(name);
   $('#home').classList.add('hide');
   $('#agent').classList.remove('hide');

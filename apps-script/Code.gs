@@ -48,7 +48,7 @@ function route_(req) {
   if (req.action === 'agentView') { checkPasscode_(req); return agentView_(req); }
   // the team page: anyone holding the team link
   const isOwner = !!req.token && req.token === PROPS.getProperty('OWNER_TOKEN');
-  if (!isOwner && ['teamView', 'markSent', 'zip', 'getPhoto', 'replacePhoto', 'trashPhoto'].indexOf(req.action) >= 0) {
+  if (!isOwner && ['teamView', 'markSent', 'zip', 'getPhoto', 'replacePhoto', 'trashPhoto', 'nextList', 'editNext'].indexOf(req.action) >= 0) {
     if (!req.key || req.key !== teamKey_()) throw new Error('This link is not valid. Ask your photographer for the current one.');
     checkPasscode_(req);
     if (req.action === 'teamView') return teamView_(req);
@@ -56,6 +56,8 @@ function route_(req) {
     if (req.action === 'getPhoto') return getPhoto_(req);
     if (req.action === 'replacePhoto') return replacePhoto_(req);
     if (req.action === 'trashPhoto') return trashPhoto_(req);
+    if (req.action === 'nextList') return nextList_();
+    if (req.action === 'editNext') return editNext_(req);
     return zip_(req);
   }
   if (!req.token || req.token !== PROPS.getProperty('OWNER_TOKEN')) throw new Error('Wrong owner token.');
@@ -73,6 +75,8 @@ function route_(req) {
     case 'markSent': return markSent_(req);
     case 'zip': return zip_(req);
     case 'trashPhoto': return trashPhoto_(req);
+    case 'nextList': return nextList_();
+    case 'editNext': return editNext_(req);
     case 'note': return note_(req);
     case 'notify': return notify_(req);
     default: throw new Error('Unknown action: ' + req.action);
@@ -112,7 +116,7 @@ function checkPasscode_(req) {
 
 function config_() {
   return {
-    version: 10,
+    version: 11,
     passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
@@ -183,6 +187,90 @@ function plan_(req) {
   };
   savePlans_(plans);
   return {};
+}
+
+// ---------- the lot list for the next photo run ----------
+//
+// Agents remove finished lots and add new ones between runs. This list is kept on its own: it never touches
+// a run's photos, notes, ticks or rankings. It starts from the lots of the latest run and starts over from the
+// new run's lots once the photographer shoots it. It is locked on the day of the next run.
+
+const MAX_LOT = 2400;
+
+function latestPlanDate_() {
+  return Object.keys(plans_()).sort().pop() || '';
+}
+
+/** The lots of the latest run, from its lot list, or from its folders if no lot list was saved. */
+function seedLots_(date) {
+  const plan = plans_()[date];
+  if (plan && plan.lots && plan.lots.length) return plan.lots.map(p => [String(p[0]), String(p[1])]);
+  const out = [];
+  const c = child_(rootFolder_(), 'Verdana Village', false);
+  const d = c && date && child_(c, date, false);
+  if (d) agents_().forEach(a => lots_(children_(d, a.name)).forEach(l => out.push([l.lot, a.name])));
+  return out;
+}
+
+function readNext_() {
+  let list = null;
+  try { list = JSON.parse(PROPS.getProperty('NEXT_LIST') || 'null'); } catch (err) { list = null; }
+  const latest = latestPlanDate_();
+  if (!list || (latest && (list.basedOn || '') < latest)) {
+    // a new run was shot since: the next list starts from that run's lots
+    list = { basedOn: latest, lots: seedLots_(latest).sort((x, y) => Number(x[0]) - Number(y[0])), changes: [] };
+  }
+  return list;
+}
+
+/** Locked on the day of the next run (from midnight between Saturday and Sunday), or on any Sunday if no date is set. */
+function nextLocked_() {
+  const tz = Session.getScriptTimeZone();
+  const today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const nextRun = PROPS.getProperty('NEXT_RUN') || '';
+  if (nextRun) return today === nextRun;
+  return Utilities.formatDate(new Date(), tz, 'u') === '7';
+}
+
+function nextList_() {
+  const list = readNext_();
+  return { basedOn: list.basedOn || '', lots: list.lots, changes: list.changes, locked: nextLocked_(), nextRun: PROPS.getProperty('NEXT_RUN') || '' };
+}
+
+/** Add or remove one lot on the next-run list. */
+function editNext_(req) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (nextLocked_()) throw new Error('The list is locked: the photo run is today. Changes open again tomorrow.');
+    const lot = String(Number(req.lot));
+    if (!/^\d+$/.test(lot) || Number(lot) < 1 || Number(lot) > MAX_LOT) throw new Error('Lot ' + req.lot + ' is not on the Verdana Village map.');
+    const names = agents_().map(a => a.name);
+    const list = readNext_();
+    const at = list.lots.findIndex(p => p[0] === lot);
+    const by = String(req.by || '').slice(0, 40);
+    let change;
+    if (req.op === 'remove') {
+      if (at < 0) return nextList_();
+      change = { op: 'remove', lot: lot, agent: list.lots[at][1] };
+      list.lots.splice(at, 1);
+    } else if (req.op === 'add') {
+      if (names.indexOf(req.agent) < 0) throw new Error('Choose whose lot it is.');
+      if (at >= 0 && list.lots[at][1] === req.agent) return nextList_();
+      change = { op: at >= 0 ? 'move' : 'add', lot: lot, agent: req.agent, from: at >= 0 ? list.lots[at][1] : '' };
+      if (at >= 0) list.lots[at][1] = req.agent; else list.lots.push([lot, req.agent]);
+    } else {
+      throw new Error('Unknown change.');
+    }
+    change.by = by;
+    change.at = new Date().toISOString();
+    list.changes = [change].concat(list.changes || []).slice(0, 60);
+    list.lots.sort((x, y) => Number(x[0]) - Number(y[0]));
+    PROPS.setProperty('NEXT_LIST', JSON.stringify(list));
+  } finally {
+    lock.releaseLock();
+  }
+  return nextList_();
 }
 
 // ---------- cached team page ----------
