@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 26; // bump with docs/version.txt on every release
+const VERSION = 27; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -1461,6 +1461,13 @@ fetch('lots.json').then(r => r.json()).then(async m => {
   master = m;
   await reconcile();
   renderRun();
+  // a next-run date that has passed moves forward two weeks at a time, so the agents' page and run-day lock stay right
+  if (settings.nextRun && settings.nextRun < today()) {
+    const d = new Date(settings.nextRun + 'T12:00:00');
+    while (d.toISOString().slice(0, 10) < today()) d.setDate(d.getDate() + 14);
+    settings.nextRun = d.toISOString().slice(0, 10);
+    store.set('settings', settings);
+  }
   if (settings.url) { setStatus('Connected.'); pump(); syncConfig().catch(() => {}); }
   else show('settings');
   if (run && run.phase === 'route') startGps();

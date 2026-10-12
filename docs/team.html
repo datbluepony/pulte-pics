@@ -264,6 +264,8 @@ body { background-color: var(--porcelain); background-image: url("data:image/svg
 #next-map img.base { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; }
 .npin { position: absolute; transform: translate(-50%, -50%); padding: 3px 7px; border-radius: 99px; font: 800 11px/1 var(--ui); color: var(--ink); background: var(--c); border: 1.5px solid rgba(15, 29, 42, .7); box-shadow: 0 2px 6px rgba(0, 0, 0, .25); white-space: nowrap; cursor: default; }
 .npin.mine { z-index: 2; }
+.npin { transition: transform .15s ease, box-shadow .15s ease; }
+.npin:hover, .npin:focus { z-index: 20; transform: translate(-50%, -50%) scale(1.35); box-shadow: 0 0 0 3px #fff, 0 6px 16px rgba(0, 0, 0, .4); outline: none; cursor: pointer; }
 .npin.flash { animation: flashpin 1.2s ease 2; }
 @keyframes flashpin { 50% { transform: translate(-50%, -50%) scale(1.5); } }
 .next-grid { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
@@ -511,7 +513,16 @@ async function copyText(text, btn) {
 const daysUntil = d => Math.round((new Date(d + 'T12:00:00').getTime() - new Date(new Date().toDateString()).getTime() - 43200000) / 86400000);
 const niceNext = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 /** The countdown bubble, or '' when no future run is set. */
+/** The next run date, never one that has passed: runs are every other Sunday, so step forward two weeks at a time. */
+function upcoming(d) {
+  if (!d) return '';
+  const t = new Date(d + 'T12:00:00');
+  while (daysUntil(t.toISOString().slice(0, 10)) < 0) t.setDate(t.getDate() + 14);
+  return t.toISOString().slice(0, 10);
+}
+
 function nextRunText(d) {
+  d = upcoming(d);
   if (!d) return '';
   const until = daysUntil(d);
   if (until < 0) return '';
@@ -542,7 +553,7 @@ async function load(date) {
       $('#expires').classList.add('hide');
       $('#home').classList.add('hide'); $('#agent').classList.add('hide'); $('#banner').classList.add('hide');
       $('#msg').classList.remove('hide');
-      $('#msg').innerHTML = `<div class="empty"><span class="empty-ico" aria-hidden="true">&#128247;</span><div><b>No photos yet</b><span>${nextText ? 'The next photo run is ' + esc(niceNext(view.nextRun)) + '. Your homes show up here as they are photographed.' : 'Your homes show up here as they are photographed.'}</span></div></div>`;
+      $('#msg').innerHTML = `<div class="empty"><span class="empty-ico" aria-hidden="true">&#128247;</span><div><b>No photos yet</b><span>${nextText ? 'The next photo run is ' + esc(niceNext(upcoming(view.nextRun))) + '. Your homes show up here as they are photographed.' : 'Your homes show up here as they are photographed.'}</span></div></div>`;
       return;
     }
     $('#run-chip').classList.remove('hide');
@@ -719,7 +730,8 @@ async function loadNext() {
 
 function renderNext() {
   const d = nextData;
-  const when = d.nextRun ? new Date(d.nextRun + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : '';
+  const nextDate = upcoming(d.nextRun);
+  const when = nextDate ? new Date(nextDate + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : '';
   $('#next-title').textContent = when ? 'Lots for the ' + when + ' run' : 'Lots for the next run';
   $('#next-status').innerHTML = d.locked
     ? '<span class="lockpill locked">&#128274; Locked</span> The photo run is today, so the list is closed. It opens again tomorrow.'
@@ -763,7 +775,7 @@ function drawNextMap(shown) {
   box.style.height = H + 'px';
   const ox = (W - (x1 - x0) * scale) / 2 - x0 * scale, oy = (H - (y1 - y0) * scale) / 2 - y0 * scale;
   box.innerHTML = `<img class="base" src="map.jpg" alt="Verdana Village site map" style="width:${siteMap.image.w * scale}px;left:${ox}px;top:${oy}px">` +
-    pts.map(p => `<span class="npin ${p.agent === me ? 'mine' : ''} ${p.lot === lastAdded ? 'flash' : ''}" style="--c:${esc(colorOf(p.agent))};left:${ox + p.at[0] * scale}px;top:${oy + p.at[1] * scale}px" title="Lot ${esc(p.lot)} · ${esc(p.agent)}">${esc(p.lot)}</span>`).join('');
+    pts.map(p => `<span tabindex="0" class="npin ${p.agent === me ? 'mine' : ''} ${p.lot === lastAdded ? 'flash' : ''}" style="--c:${esc(colorOf(p.agent))};left:${ox + p.at[0] * scale}px;top:${oy + p.at[1] * scale}px" title="Lot ${esc(p.lot)} · ${esc(p.agent)}">${esc(p.lot)}</span>`).join('');
 }
 
 $('#next-who').addEventListener('click', e => {
