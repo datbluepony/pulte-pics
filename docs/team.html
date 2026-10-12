@@ -192,8 +192,8 @@ body { background-color: var(--porcelain); background-image: url("data:image/svg
 /* cards rise in one after another */
 .rise { animation: rise .6s cubic-bezier(.2, .75, .2, 1) both; animation-delay: calc(var(--i, 0) * 70ms); }
 @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-/* photos fade in as they arrive, over a soft shimmer */
-.cover, .strip button { background: linear-gradient(100deg, #e6ebf0 30%, #f3f6f8 50%, #e6ebf0 70%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
+/* photos fade in as they arrive, over a plain placeholder (no moving shimmer: it kept every unseen photo box animating) */
+.cover, .strip button { background: #e6ebf0; }
 .cover img, .strip img { opacity: 0; transition: opacity .5s ease, transform .5s; }
 .cover img.in, .strip img.in { opacity: 1; }
 .lot:hover { box-shadow: 0 2px 4px rgba(15, 29, 42, .05), 0 18px 40px rgba(15, 29, 42, .1); }
@@ -237,10 +237,14 @@ body { background-color: var(--porcelain); background-image: url("data:image/svg
 .art .photo { background-image: url(map.jpg); opacity: .62; filter: saturate(.8); }
 .art .shade { background: linear-gradient(180deg, rgba(7, 26, 42, .5) 0%, rgba(7, 26, 42, .7) 55%, rgba(7, 26, 42, .97) 100%), linear-gradient(90deg, rgba(7, 26, 42, .62), rgba(7, 26, 42, 0) 62%), radial-gradient(900px 340px at 18% 0%, rgba(184, 145, 58, .16), transparent 70%); }
 .art .streets { background-image: url(streets.png); opacity: .6; mix-blend-mode: screen; -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, .18), rgba(0, 0, 0, .9) 60%); mask-image: linear-gradient(90deg, rgba(0, 0, 0, .18), rgba(0, 0, 0, .9) 60%); }
-.art .sweep { background: linear-gradient(105deg, transparent 38%, rgba(255, 236, 190, .85) 50%, transparent 62%) 0 0 / 260% 100% no-repeat; -webkit-mask: url(streets.png) center 40% / cover no-repeat; mask: url(streets.png) center 40% / cover no-repeat; mix-blend-mode: screen; animation: sweep-streets 9s cubic-bezier(.45, 0, .55, 1) infinite; }
-@keyframes sweep-streets { from { background-position: 140% 0; } to { background-position: -40% 0; } }
+.art .sweep { overflow: hidden; -webkit-mask: url(streets.png) center 40% / cover no-repeat; mask: url(streets.png) center 40% / cover no-repeat; mix-blend-mode: screen; }
+/* the band of light slides as one piece (a transform), which the graphics card moves without redrawing the page */
+.art .sweep b { position: absolute; top: 0; bottom: 0; left: 0; width: 260%; background: linear-gradient(105deg, transparent 38%, rgba(255, 236, 190, .85) 50%, transparent 62%); will-change: transform; animation: sweep-streets 9s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes sweep-streets { from { transform: translateX(-86.15%); } to { transform: translateX(24.6%); } }
 @keyframes drift { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.12) translate(-2%, -1.5%); } }
-@media (prefers-reduced-motion: reduce) { .art, .art .sweep { animation: none !important; } .art .sweep { display: none; } }
+/* off screen: hold the drift and the light sweep where they are, and carry on when they come back into view */
+.art.paused, .art.paused .sweep b { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .art, .art .sweep b { animation: none !important; } .art .sweep { display: none; } }
 
 /* nothing photographed yet */
 #msg .empty { display: flex; gap: 16px; align-items: center; }
@@ -352,7 +356,7 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 <body>
 <div id="loadbar" class="hide" aria-hidden="true"><i></i></div>
 <div id="gate" class="hide" role="dialog" aria-labelledby="gate-title">
-  <div class="art" aria-hidden="true"><i class="photo"></i><i class="shade"></i><i class="streets"></i><i class="sweep"></i></div>
+  <div class="art" aria-hidden="true"><i class="photo"></i><i class="shade"></i><i class="streets"></i><i class="sweep"><b></b></i></div>
   <div class="gate-card">
     <svg class="gate-logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg>
     <div class="eyebrow">Verdana Village update photos</div>
@@ -367,7 +371,7 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
     <div class="gate-note">Questions? Text Andrew.</div>
   </div>
 </div>
-<div class="mast"><div class="art" aria-hidden="true"><i class="photo"></i><i class="shade"></i><i class="streets"></i><i class="sweep"></i></div><div class="wrap">
+<div class="mast"><div class="art" aria-hidden="true"><i class="photo"></i><i class="shade"></i><i class="streets"></i><i class="sweep"><b></b></i></div><div class="wrap">
   <div class="topbar">
     <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M8 16.5 16 9l8 7.5V24a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#0b3c5d"/><circle cx="23" cy="10" r="3.2" fill="#b8913a"/></svg>
     <div class="brandname">Construction Update Photos<small>For the sales team</small></div>
@@ -1102,6 +1106,12 @@ async function refresh() {
 }
 setInterval(refresh, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+
+// header art runs only while it can be seen
+if ('IntersectionObserver' in window) {
+  const watch = new IntersectionObserver(entries => entries.forEach(en => en.target.querySelector('.art').classList.toggle('paused', !en.isIntersecting)));
+  document.querySelectorAll('.mast').forEach(m => watch.observe(m));
+}
 
 load('');
 </script>
