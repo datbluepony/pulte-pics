@@ -116,7 +116,7 @@ function checkPasscode_(req) {
 
 function config_() {
   return {
-    version: 12,
+    version: 13,
     passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
@@ -193,7 +193,7 @@ function plan_(req) {
 //
 // Agents remove finished lots and add new ones between runs. This list is kept on its own: it never touches
 // a run's photos, notes, ticks or rankings. It starts from the lots of the latest run and starts over from the
-// new run's lots once the photographer shoots it. It is locked on the day of the next run.
+// new run's lots once the photographer shoots it. It is never locked.
 
 const MAX_LOT = 2400;
 
@@ -205,10 +205,35 @@ function latestPlanDate_() {
 function seedLots_(date) {
   const plan = plans_()[date];
   if (plan && plan.lots && plan.lots.length) return plan.lots.map(p => [String(p[0]), String(p[1])]);
+  return folderLots_(date);
+}
+
+/**
+ * The lots in a run's folders, read even after the run expired and went to the trash, so the next list
+ * still starts from the last run. With no date, the newest run folder is used.
+ */
+function folderLots_(date) {
   const out = [];
   const c = child_(rootFolder_(), 'Verdana Village', false);
-  const d = c && date && child_(c, date, false);
-  if (d) agents_().forEach(a => lots_(children_(d, a.name)).forEach(l => out.push([l.lot, a.name])));
+  if (!c) return out;
+  const runs = [], seen = {};
+  const collect = it => { while (it.hasNext()) { const f = it.next(); if (!seen[f.getId()]) { seen[f.getId()] = 1; runs.push(f); } } };
+  collect(c.getFolders());
+  try { collect(c.searchFolders('trashed = true')); } catch (err) { /* only the folders still in place */ }
+  const dated = runs.filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f.getName()) && (!date || f.getName() === date))
+    .sort((x, y) => x.getName() < y.getName() ? 1 : -1);
+  for (let i = 0; i < dated.length && !out.length; i++) {
+    agents_().forEach(a => {
+      const af = dated[i].getFoldersByName(a.name);
+      while (af.hasNext()) {
+        const lots = af.next().getFolders();
+        while (lots.hasNext()) {
+          const m = /^Lot\s+(\d+)/i.exec(lots.next().getName());
+          if (m && !out.some(p => p[0] === m[1])) out.push([m[1], a.name]);
+        }
+      }
+    });
+  }
   return out;
 }
 
@@ -218,23 +243,30 @@ function readNext_() {
   const latest = latestPlanDate_();
   if (!list || (latest && (list.basedOn || '') < latest)) {
     // a new run was shot since: the next list starts from that run's lots
-    list = { basedOn: latest, lots: seedLots_(latest).sort((x, y) => Number(x[0]) - Number(y[0])), changes: [] };
+    list = { basedOn: latest, lots: seedLots_(latest).sort((x, y) => Number(x[0]) - Number(y[0])), changes: [], fresh: true };
   }
   return list;
 }
 
-/** Locked on the day of the next run (from midnight between Saturday and Sunday), or on any Sunday if no date is set. */
+/** The list is never locked: agents add and remove lots any time. Changes made once a run has started count for the run after it. */
 function nextLocked_() {
-  const tz = 'America/New_York'; // Verdana Village time, whatever time zone the script project was created in
-  const today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  const nextRun = PROPS.getProperty('NEXT_RUN') || '';
-  if (nextRun) return today === nextRun;
-  return Utilities.formatDate(new Date(), tz, 'u') === '7';
+  return false;
 }
 
 function nextList_() {
-  const list = readNext_();
-  return { basedOn: list.basedOn || '', lots: list.lots, changes: list.changes, locked: nextLocked_(), nextRun: PROPS.getProperty('NEXT_RUN') || '' };
+  let list = readNext_();
+  if (list.fresh && list.lots.length) {
+    // keep the starting list, so it is still there after the last run's photos expire
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      list = readNext_();
+      if (list.fresh) { delete list.fresh; PROPS.setProperty('NEXT_LIST', JSON.stringify(list)); }
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  return { basedOn: list.basedOn || '', lots: list.lots, changes: list.changes, locked: false, nextRun: PROPS.getProperty('NEXT_RUN') || '' };
 }
 
 /** Add or remove one lot on the next-run list. */
@@ -242,7 +274,6 @@ function editNext_(req) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    if (nextLocked_()) throw new Error('The list is locked: the photo run is today. Changes open again tomorrow.');
     const lot = String(Number(req.lot));
     if (!/^\d+$/.test(lot) || Number(lot) < 1 || Number(lot) > MAX_LOT) throw new Error('Lot ' + req.lot + ' is not on the Verdana Village map.');
     const names = agents_().map(a => a.name);
@@ -266,6 +297,7 @@ function editNext_(req) {
     change.at = new Date().toISOString();
     list.changes = [change].concat(list.changes || []).slice(0, 60);
     list.lots.sort((x, y) => Number(x[0]) - Number(y[0]));
+    delete list.fresh;
     PROPS.setProperty('NEXT_LIST', JSON.stringify(list));
   } finally {
     lock.releaseLock();
@@ -652,6 +684,8 @@ function buildTeamView_(req) {
   return {
     expireDays: Number(PROPS.getProperty('EXPIRE_DAYS') || DEFAULT_EXPIRE_DAYS),
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
+    // names and colors even when no run's photos are left, so agents can still open their next-run lots
+    agents: agents_().map(a => ({ name: a.name, color: a.color })),
     runs: runs.map(r => ({ community: r.community, date: r.date, inProgress: r.inProgress })),
     run: run ? {
       community: run.community,

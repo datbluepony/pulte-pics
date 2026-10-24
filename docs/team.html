@@ -296,7 +296,13 @@ body { background-color: var(--porcelain); background-image: url("data:image/svg
 .logline time { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .tag { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: .06em; }
 .tag.add { background: var(--good-soft); color: var(--good); } .tag.remove { background: #fde9e7; color: #a4321f; } .tag.move { background: var(--gold-soft); color: #8a6a1f; }
-@media (max-width: 760px) { .next-grid { grid-template-columns: 1fr; } .tabs2 { width: 100%; } .tabs2 button { flex: 1; padding: 11px 8px; } }
+.next-head .grow { flex: 1 1 280px; min-width: 0; }
+@media (max-width: 760px) {
+  .next-grid { grid-template-columns: 1fr; } .tabs2 { width: 100%; } .tabs2 button { flex: 1; padding: 11px 8px; }
+  .next-list { order: -1; } /* on a phone your own lots come first, then the add form */
+  .next-head h3 { font-size: 24px; }
+  .nrow button { padding: 10px 14px; font-size: 14px; }
+}
 
 footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
@@ -392,9 +398,9 @@ footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
 
   <!-- landing: click your name -->
   <section id="home" class="hide">
-    <div class="section-head"><h2>Choose your name</h2><span>Ranked by homes in this photo run</span></div>
+    <div class="section-head"><h2>Choose your name</h2><span id="home-sub">Ranked by homes in this photo run</span></div>
     <div class="people" id="people"></div>
-    <p class="muted footnote">The ring fills as each agent marks their customer updates sent.</p>
+    <p class="muted footnote" id="home-foot">The ring fills as each agent marks their customer updates sent.</p>
   </section>
 
   <!-- one agent's lots -->
@@ -550,6 +556,28 @@ async function load(date) {
     $('#next').classList.toggle('hide', !nextText);
     $('#next').innerHTML = nextText;
     if (!view.run) {
+      // the last run's photos have expired: everyone can still open their lots for the next run
+      const list = await call('nextList', {}).catch(() => null);
+      if (list) {
+        nextData = list;
+        const known = { Justin: '#46b1e1', Gita: '#f2cfee', Derek: '#ffff00' };
+        let people = (view.agents || []).slice();
+        if (!people.length) list.lots.forEach(p => { if (!people.some(a => a.name === p[1])) people.push({ name: p[1], color: known[p[1]] || '#cccccc' }); });
+        view.run = { none: true, community: 'Verdana Village', date: '', inProgress: false, planned: 0, shot: 0,
+          agents: people.map(a => ({ name: a.name, color: a.color, folderUrl: '', lots: [] })) };
+      }
+    }
+    if (view.run && view.run.none) {
+      $('#community').textContent = 'Verdana Village';
+      $('#rundate').textContent = 'Lots for the next photo run';
+      $('#run-chip').classList.add('hide');
+      $('#expires').classList.add('hide');
+      $('#banner').classList.add('hide');
+      const saved = remember.get();
+      if (view.run.agents.some(a => a.name === saved)) open(saved); else home();
+      return;
+    }
+    if (!view.run) {
       // nothing photographed yet: no empty bubbles, just the countdown and a clear note
       $('#community').textContent = 'Verdana Village';
       $('#rundate').textContent = 'Update photos';
@@ -678,6 +706,23 @@ function home() {
   me = '';
   $('#agent').classList.add('hide');
   $('#home').classList.remove('hide');
+  $('#home-foot').classList.toggle('hide', !!view.run.none);
+  if (view.run.none) {
+    // no photos to rank: each card opens that agent's lots for the next run
+    const d = upcoming((nextData && nextData.nextRun) || view.nextRun);
+    $('#home-sub').textContent = d ? 'Check your lots for the ' + niceNext(d) + ' run' : 'Check your lots for the next run';
+    $('#people').innerHTML = view.run.agents.map(a => {
+      const n = nextData ? nextData.lots.filter(p => p[1] === a.name).length : 0;
+      return `<button class="person" style="--c:${esc(a.color)}" data-name="${esc(a.name)}">
+        <div class="top"><span class="avatar">${esc(a.name.slice(0, 1).toUpperCase())}</span><div><div class="rank">Next run</div><div class="name">${esc(a.name)}</div></div></div>
+        <div class="middle"><div class="big">${n}<small>${n === 1 ? 'lot' : 'lots'} to photograph</small></div></div>
+        <div class="go">Review my lots<i>&rarr;</i></div>
+      </button>`;
+    }).join('');
+    rise($('#people').children);
+    return;
+  }
+  $('#home-sub').textContent = 'Ranked by homes in this photo run';
   const ranked = view.run.agents.slice().sort((a, b) => b.lots.length - a.lots.length);
   const top = ranked.length ? ranked[0].lots.length : 0;
   const ord = n => n + (n % 100 > 10 && n % 100 < 14 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
@@ -739,9 +784,10 @@ function renderNext() {
   $('#next-title').textContent = when ? 'Lots for the ' + when + ' run' : 'Lots for the next run';
   $('#next-status').innerHTML = d.locked
     ? '<span class="lockpill locked">&#128274; Locked</span> The photo run is today, so the list is closed. It opens again tomorrow.'
-    : '<span class="lockpill">&#9679; Open</span> Changes close at midnight the night before the run.';
+    : '<span class="lockpill">&#9679; Open</span> Tap Remove on any lot that no longer needs photos, and add new ones below. Changes save right away.';
   const shown = d.lots.filter(p => nextWho === 'all' || p[1] === me);
   const mine = d.lots.filter(p => p[1] === me).length;
+  $('#agent-tabs [data-tab="next"]').textContent = 'Next run lots (' + mine + ')';
   $('#next-count').textContent = nextWho === 'all' ? 'Everyone (' + d.lots.length + ' lots)' : 'Your lots (' + mine + ')';
   const newSet = new Set((d.changes || []).filter(c => c.op !== 'remove').map(c => c.lot));
   $('#next-rows').innerHTML = shown.map(p => `
@@ -838,7 +884,6 @@ window.addEventListener('resize', () => { if (nextData && !$('#tab-next').classL
 
 function open(name) {
   me = name;
-  showTab('photos');
   remember.set(name);
   $('#home').classList.add('hide');
   $('#agent').classList.remove('hide');
@@ -848,8 +893,20 @@ function open(name) {
   $('#who-dot').textContent = name.slice(0, 1).toUpperCase();
   $('#drive').href = a.folderUrl || '#';
   $('#drive').classList.toggle('hide', !a.folderUrl);
+  // with no photos left to show, the page goes straight to the next-run lots
+  $('#agent-tabs').classList.toggle('hide', !!view.run.none);
+  nextWho = 'me';
+  document.querySelectorAll('#next-who button').forEach(x => x.classList.toggle('on', x.dataset.w === 'me'));
+  if (view.run.none) { showTab('next'); window.scrollTo(0, 0); return; }
+  showTab('photos');
   renderLots(true);
   window.scrollTo(0, 0);
+  // how many lots are on the next-run list, right on the tab
+  call('nextList', {}).then(l => {
+    if (me !== name) return;
+    const n = l.lots.filter(p => p[1] === name).length;
+    $('#agent-tabs [data-tab="next"]').textContent = 'Next run lots (' + n + ')';
+  }).catch(() => {});
 }
 
 /** "Moved up" when the stage advanced since the last run; "New this run" for a lot that was not on the last map. */
@@ -1097,6 +1154,12 @@ document.addEventListener('keydown', e => {
 async function refresh() {
   if (document.hidden || !view || !view.run || !$('#viewer').classList.contains('hide') || document.activeElement === $('#find')) return;
   try {
+    if (view.run.none) {
+      // waiting on the next run: once its first photos are in, show them
+      const fresh = await call('teamView', {});
+      if (fresh.run && document.activeElement !== $('#add-lot')) load('');
+      return;
+    }
     const fresh = await call('teamView', { date: view.run.date });
     if (!fresh.run || JSON.stringify(fresh.run) === JSON.stringify(view.run)) return;
     view = fresh;

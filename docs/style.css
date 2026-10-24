@@ -149,6 +149,7 @@ textarea { resize: vertical; }
 #mini { position: relative; height: 320px; border-radius: var(--radius); overflow: hidden; background: #cfe3c0 url(map.jpg) no-repeat; box-shadow: var(--shadow); margin: 12px 0; }
 #mini-target { position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border: 4px solid #e11d48; border-radius: 50%; box-shadow: 0 0 0 3px #fff, 0 2px 8px rgba(0,0,0,.3); }
 #mini-me, .me { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; background: #1a73e8; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 6px rgba(26,115,232,.22); z-index: 3; }
+#mini-acc { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); background: rgba(26,115,232,.12); border: 1px solid rgba(26,115,232,.4); pointer-events: none; z-index: 2; }
 #mini-here { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%; background: rgba(255, 221, 0, .4); border: 3px solid var(--accent); }
 #mini-me i { display: none; position: absolute; left: 50%; bottom: 100%; margin-left: -9px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 20px solid rgba(26,115,232,.75); }
 #mini-me.facing i { display: block; }

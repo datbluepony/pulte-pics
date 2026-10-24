@@ -23,6 +23,7 @@ class Folder {
   createFolder(n) { const f = new Folder(n, this); this.kids.push(f); folders[f.id] = f; return f; }
   createFile(blob) { const f = new File(blob.name, this, blob); this.files.push(f); files[f.id] = f; return f; }
   getFolders() { return iter(this.kids.filter(k => !k.trashed)); }
+  searchFolders(q) { if (q !== 'trashed = true') throw new Error('query not supported here'); return iter(this.kids.filter(k => k.trashed)); }
   getFoldersByName(n) { return iter(this.kids.filter(k => k.name === n && !k.trashed)); }
   getFiles() { return iter(this.files.filter(k => !k.trashed)); }
   getFilesByName(n) { return iter(this.files.filter(k => k.name === n && !k.trashed)); }
@@ -239,27 +240,35 @@ assert.strictEqual(team('editNext', { op: 'remove', lot: 1234 }).lots.length, nl
 assert.strictEqual(JSON.stringify(team('teamView', { date: '2026-10-11' }).run.agents.map(a => a.name + ':' + a.lots.length)), rankBefore, 'rankings for the shot run unchanged');
 assert.strictEqual(JSON.stringify(Object.values(files).map(f => f.id + f.trashed).sort()), filesBefore, 'no photo touched');
 assert(own('nextList', {}).lots.some(x => x.join(':') === '2210:Gita'), 'photographer sees the same list');
-own('saveAgents', { agents: ctx.agents_(), nextRun: todayNY });  // run day: locked
-assert(team('nextList', {}).locked && !team('editNext', { op: 'add', lot: 600, agent: 'Gita' }).ok, 'locked on the day of the run');
+own('saveAgents', { agents: ctx.agents_(), nextRun: todayNY });  // run day: still open
+nl = team('editNext', { op: 'add', lot: 600, agent: 'Gita', by: 'Gita' });
+assert(!team('nextList', {}).locked && nl.ok && nl.lots.some(x => x.join(':') === '600:Gita'), 'never locked, even on the day of the run');
+nl = team('editNext', { op: 'remove', lot: 600, by: 'Gita' });
+assert(nl.ok && !nl.lots.some(x => x[0] === '600'), 'and removing works on the day too');
 own('saveAgents', { agents: ctx.agents_(), nextRun: '2099-01-01' });
+assert(team('teamView', {}).agents.map(a => a.name).join() === ctx.agents_().map(a => a.name).join(), 'team page always gets the agent names');
 own('plan', { community: C, date: '2026-10-25', lots: [{ lot: 2210, agent: 'Gita' }] });
 nl = team('nextList', {});
 assert(nl.basedOn === '2026-10-25' && nl.lots.length === 1 && !nl.changes.length, 'after the next run is shot, the list starts over from it');
 assert(props.NEXT_LIST === undefined || props.NEXT_LIST.length < 9000, 'list stays small');
 
-// the list locks at midnight Florida time, whatever time zone the script project uses
-const RealDate = Date;
-const at = iso => { ctx.Date = class extends RealDate { constructor(...a) { super(...(a.length ? a : [iso])); } static now() { return new RealDate(iso).getTime(); } }; };
-ctx.Session.getScriptTimeZone = () => 'Etc/GMT'; // a project created on London time
-own('saveAgents', { agents: ctx.agents_(), nextRun: '2026-10-25' });
-at('2026-10-25T02:30:00Z'); // Saturday 10:30 pm in Florida (already Sunday in London)
-assert(!team('nextList', {}).locked && team('editNext', { op: 'add', lot: 701, agent: 'Gita', by: 'Gita' }).ok, 'still open Saturday night before midnight');
-at('2026-10-25T04:30:00Z'); // Sunday 12:30 am in Florida
-assert(team('nextList', {}).locked && !team('editNext', { op: 'add', lot: 702, agent: 'Gita' }).ok, 'locked from midnight');
-at('2026-10-26T04:30:00Z'); // Monday 12:30 am
-assert(!team('nextList', {}).locked, 'open again the next day');
-ctx.Date = RealDate;
-own('saveAgents', { agents: ctx.agents_(), nextRun: '2099-01-01' });
+// the last run's photos expire: the next list is still there, from the saved list or from the trashed folders
+const listBefore = JSON.stringify(team('nextList', {}).lots);
+const trashRuns = on => { const it = ctx.DriveApp.getFolderById(props.ROOT_FOLDER_ID).getFolders(); while (it.hasNext()) { const ds = it.next().getFolders(); while (ds.hasNext()) ds.next().setTrashed(on); } props.VIEW_VER = String(Number(props.VIEW_VER || 0) + 1); };
+trashRuns(true);
+assert.strictEqual(JSON.stringify(team('nextList', {}).lots), listBefore, 'saved list survives the photos expiring');
+const savedList = props.NEXT_LIST;
+const savedPlans = Object.keys(props).filter(k => k.indexOf('PLAN_') === 0).map(k => [k, props[k]]);
+savedPlans.forEach(p => delete props[p[0]]);
+delete props.NEXT_LIST;
+nl = team('nextList', {});
+assert(nl.ok && nl.lots.length > 0 && nl.lots.every(x => /^\d+$/.test(x[0])), 'with no plan or list saved, it starts from the trashed folders of the last run: ' + nl.lots.length);
+assert(props.NEXT_LIST && JSON.parse(props.NEXT_LIST).fresh === undefined, 'starting list is kept');
+savedPlans.forEach(p => { props[p[0]] = p[1]; });
+props.NEXT_LIST = savedList;
+const tv0 = team('teamView', {});
+assert(tv0.ok && !tv0.run && tv0.agents.length === ctx.agents_().length, 'no run left: page still gets the agents');
+trashRuns(false);
 
 // team passcode: checked by the script, so the public page code cannot skip it
 r = own('saveAgents', { agents: ctx.agents_(), passcode: 'Verdana26' });

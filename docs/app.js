@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 29; // bump with docs/version.txt on every release
+const VERSION = 30; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -558,9 +558,44 @@ $('#past-list').addEventListener('click', e => {
 
 // ---------- where am I ----------
 
-let pos = null;          // latest GPS fix
+let pos = null;          // GPS position in use: steadied, and never replaced by a much rougher reading
+let posAt = 0;           // when it was last updated
 let heading = null;      // degrees clockwise from north the top of the phone points
 let watchId = null;
+const GPS_ROUGH_M = 50;  // readings rougher than this (metres) are used only when nothing better is recent
+
+/**
+ * Take one GPS reading. The iPhone's first readings are often a rough guess from cell towers, and a
+ * reading can jump during a bad moment: those never replace a good recent fix. While standing still or
+ * walking slowly, readings are averaged so the dot stops wobbling, trusting the sharper reading more.
+ */
+function takeFix(c) {
+  const now = Date.now();
+  const recent = pos && now - posAt < 15000;
+  if (recent && c.accuracy > Math.max(GPS_ROUGH_M, pos.accuracy * 2)) return false;
+  let lat = c.latitude, lon = c.longitude, acc = c.accuracy;
+  if (recent && !(c.speed > 2)) {
+    const m = Math.hypot((lat - pos.latitude) * 111320, (lon - pos.longitude) * 111320 * Math.cos(lat * Math.PI / 180));
+    if (m < Math.max(c.accuracy, pos.accuracy)) {
+      const wNew = 1 / (c.accuracy * c.accuracy), wOld = 0.5 / (pos.accuracy * pos.accuracy);
+      lat = (lat * wNew + pos.latitude * wOld) / (wNew + wOld);
+      lon = (lon * wNew + pos.longitude * wOld) / (wNew + wOld);
+      acc = Math.min(c.accuracy, pos.accuracy * 1.2);
+    }
+  }
+  pos = { latitude: lat, longitude: lon, accuracy: acc };
+  posAt = now;
+  return true;
+}
+
+/** A note when the GPS fix is too rough to trust, with the fix for the most common cause. */
+function gpsNote() {
+  if (!pos) return '';
+  if (Date.now() - posAt > 30000) return 'Waiting for a fresh GPS reading. ';
+  if (pos.accuracy > 500) return 'Your phone is only giving an approximate location. Turn on Precise Location: Settings > Privacy & Security > Location Services > Safari Websites > Precise Location. ';
+  if (pos.accuracy > 30) return 'GPS is rough right now (within about ' + Math.round(pos.accuracy * 3.281 / 10) * 10 + ' ft), so the dot may be off. It sharpens in a few seconds outside. ';
+  return '';
+}
 
 /** GPS fix as a point in map pixels, or null when unknown or far outside the community. */
 function myMapPoint() {
@@ -574,7 +609,7 @@ function myMapPoint() {
 function startGps() {
   if (watchId != null || !navigator.geolocation) return;
   watchId = navigator.geolocation.watchPosition(
-    p => { pos = p.coords; renderFind(); },
+    p => { if (takeFix(p.coords)) { renderFind(); moveMapDot(); } },
     () => { if (!pos) $('#find-dist').textContent = 'Location is off'; },
     { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
 }
@@ -772,20 +807,27 @@ function renderFind() {
     }
   }
   $('#mini-path').innerHTML = line;
+  const acc = $('#mini-acc');
+  acc.classList.toggle('hide', !me);
   if (!me) {
     here.classList.add('hide');
     $('#find-dist').textContent = pos ? 'You are not at Verdana Village' : 'Finding you...';
-    $('#find-hint').textContent = hint + (pos ? ' The live map and compass start once you are in the community.' : '');
+    $('#find-hint').textContent = gpsNote() + hint + (pos ? ' The live map and compass start once you are in the community.' : '');
     return;
   }
+  // the shaded circle is how sure the phone is: you are somewhere inside it
+  const r = Math.max(9, Math.min(w, pos.accuracy / master.geo.mPerPx * z));
+  acc.style.width = acc.style.height = (2 * r) + 'px';
+  place(acc, me);
   place(dot, me);
   dot.classList.toggle('facing', heading != null);
   dot.style.transform = 'rotate(' + (heading || 0) + 'deg)';
-  const standing = lotAt(me);
+  const sure = pos.accuracy <= 30; // only name the lot you are on when the fix is good enough to tell
+  const standing = sure ? lotAt(me) : null;
   here.classList.toggle('hide', standing == null || standing === currentLot);
   if (standing != null) place(here, master.lots[standing]);
   const metres = Math.hypot(dx, dy) * master.geo.mPerPx;
-  const arrived = standing === currentLot || metres < ARRIVED_M;
+  const arrived = standing === currentLot || (sure && metres < ARRIVED_M);
   $('#find-dist').textContent = arrived ? 'You are at lot ' + currentLot : Math.round(metres * 3.281 / 10) * 10 + ' ft away';
   $('.compass').classList.toggle('arrived', arrived);
   $('#btn-here').classList.toggle('pulse', arrived);
@@ -795,7 +837,7 @@ function renderFind() {
   }
   if (standing != null && standing !== currentLot) hint = 'You are at lot ' + standing + '. ' + hint;
   if (heading == null) hint += ' Turn on the compass to see which way you are facing.';
-  $('#find-hint').textContent = hint;
+  $('#find-hint').textContent = gpsNote() + hint;
 }
 
 // ---------- one lot: shoot it ----------
@@ -1271,6 +1313,17 @@ function mapRun() {
   return null;
 }
 
+/** Keep the blue dot on the big map following you, without redrawing the map. */
+function moveMapDot() {
+  const dot = $('#mapinner .me');
+  if (!dot) return;
+  const me = myMapPoint();
+  dot.classList.toggle('hide', !me);
+  if (!me) return;
+  dot.style.left = (me[0] / master.image.w * 100).toFixed(2) + '%';
+  dot.style.top = (me[1] / master.image.h * 100).toFixed(2) + '%';
+}
+
 function renderMap(center) {
   const inner = $('#mapinner');
   const R = mapRun();
@@ -1283,7 +1336,7 @@ function renderMap(center) {
       style="left:${(x / master.image.w * 100).toFixed(2)}%;top:${(y / master.image.h * 100).toFixed(2)}%;background:${esc(agentColor(l.agent))}">${order || ''}</div>`;
   }).join('');
   const me = myMapPoint();
-  const meDot = me ? `<div class="me" style="left:${(me[0] / master.image.w * 100).toFixed(2)}%;top:${(me[1] / master.image.h * 100).toFixed(2)}%"></div>` : '';
+  const meDot = `<div class="me ${me ? '' : 'hide'}" style="left:${me ? (me[0] / master.image.w * 100).toFixed(2) : 0}%;top:${me ? (me[1] / master.image.h * 100).toFixed(2) : 0}%"></div>`;
   // the drive along the roads: gray where you have been, blue for what is left
   let line = '';
   if (R && R.paths) {
