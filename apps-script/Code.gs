@@ -116,7 +116,7 @@ function checkPasscode_(req) {
 
 function config_() {
   return {
-    version: 11,
+    version: 12,
     passcode: PROPS.getProperty('PASSCODE') || '',
     nextRun: PROPS.getProperty('NEXT_RUN') || '',
     teamKey: teamKey_(),
@@ -225,7 +225,7 @@ function readNext_() {
 
 /** Locked on the day of the next run (from midnight between Saturday and Sunday), or on any Sunday if no date is set. */
 function nextLocked_() {
-  const tz = Session.getScriptTimeZone();
+  const tz = 'America/New_York'; // Verdana Village time, whatever time zone the script project was created in
   const today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   const nextRun = PROPS.getProperty('NEXT_RUN') || '';
   if (nextRun) return today === nextRun;

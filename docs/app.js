@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 27; // bump with docs/version.txt on every release
+const VERSION = 29; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -29,7 +29,19 @@ const STAGES = [
   { id: 'complete', label: 'Complete', text: 'The home looks complete from the outside.' },
 ];
 
+// the Google web app address is not a secret (it is in the agents' link), so the app knows it from the start
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbw4puVGwkRwzw54KgcKU9jXTq3ym1Y3BISzGLy9amlQ81ctkVEktvMAOrtDeoAvEHAo9g/exec';
 let settings = store.get('settings', { url: '', token: '', expireDays: 13 });
+if (!settings.url) { settings.url = DEFAULT_URL; store.set('settings', settings); }
+// a private restore link (#restore=TOKEN) puts the owner token back after the phone forgets it
+(function restoreFromLink() {
+  const m = /[#&]restore=([^&]+)/.exec(location.hash);
+  if (!m) return;
+  settings.token = decodeURIComponent(m[1]);
+  settings.adopted = false; // load the real setup from Google, never overwrite it
+  store.set('settings', settings);
+  window.history.replaceState(null, '', location.pathname + location.search); // the token does not stay in the address bar
+})();
 if (!settings.nextRun) { settings.nextRun = '2026-10-11'; store.set('settings', settings); } // first countdown; rolls forward two weeks after each run
 if (!settings.days13) { settings.expireDays = 13; settings.days13 = true; store.set('settings', settings); } // one-time move from 11 to 13 days
 let agents = store.get('agents', [
@@ -362,6 +374,67 @@ $('#btn-discard').addEventListener('click', () => {
   renderRun();
 });
 
+// ---------- route ready on its own ----------
+
+/** The next run date, never one that has passed (runs are every other Sunday). */
+function upcomingRun(d) {
+  if (!d) return '';
+  const t = new Date(d + 'T12:00:00');
+  while (t.toISOString().slice(0, 10) < today()) t.setDate(t.getDate() + 14);
+  return t.toISOString().slice(0, 10);
+}
+
+/**
+ * With nothing worked on saved on this phone, pick up where things stand in Google:
+ * today's run if it was already started, otherwise (within two days of the next run) the agents' list.
+ * An automatic route is only a draft: it follows the agents' list until the first photo is taken,
+ * and nothing is sent to Google before then.
+ */
+let autoBusy = false;
+async function autoRoute() {
+  if (autoBusy || !settings.token || (settings.backend || 0) < 11 || past) return;
+  const draft = run && run.auto && !run.lots.some(l => l.count || l.done);
+  if (run && !draft) return;
+  autoBusy = true;
+  try {
+    let lots = null, date = '', resumed = false;
+    const tv = await api('teamView', { date: today() });
+    if (tv.run && tv.run.date === today() && tv.run.agents.some(a => a.lots.some(l => l.files.length))) {
+      // today's run was started and this phone forgot it: carry on from what is in Google
+      date = today(); resumed = true;
+      lots = [];
+      tv.run.agents.forEach(a => a.lots.forEach(l => lots.push(Object.assign(blankLot(Number(l.lot), a.name), {
+        stage: '', count: l.files.length, sent: l.files.length, done: l.files.length > 0, seq: l.files.length + 20,
+        photos: l.files.map(f => ({ name: f.name, id: f.id, thumb: 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(f.id) + '&sz=w200' })),
+      }))));
+    } else {
+      const list = await api('nextList', {});
+      date = upcomingRun(list.nextRun || settings.nextRun);
+      const daysAway = date ? Math.round((new Date(date + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 86400000) : 99;
+      if (!list.lots.length || daysAway > 2) return;
+      const names = agents.map(g => g.name);
+      lots = list.lots.filter(p => master.lots[p[0]]).map(p => blankLot(Number(p[0]), names.indexOf(p[1]) >= 0 ? p[1] : ''));
+      if (draft && run.date === date && run.lots.map(l => l.lot + l.agent).join() === lots.map(l => l.lot + l.agent).join()) return; // already up to date
+    }
+    const nums = lots.map(l => l.lot).filter(n => master.lots[n]);
+    const plan = await Route.plan(nums.map(n => master.lots[n]), START, master.grid.cell);
+    const order = plan.order.map(i => nums[i]);
+    const paths = {};
+    plan.order.forEach((i, k) => { paths[nums[i]] = plan.paths[k]; });
+    // a local run started meanwhile always wins
+    if (run && !(run.auto && !run.lots.some(l => l.count || l.done))) return;
+    run = { community: COMMUNITY, date: date, phase: 'route', lots: lots, order: order, paths: paths, warnings: [], auto: !resumed, planSent: resumed };
+    saveRun();
+    renderRun();
+    if (!$('#view-map').classList.contains('hide')) renderMap(true);
+    setStatus(resumed ? "Picked up today's run from Google." : "Route ready from the agents' list.");
+  } catch (e) {
+    /* nothing to pick up: the start screen stays */
+  } finally {
+    autoBusy = false;
+  }
+}
+
 // ---------- start the next run from the agents' list ----------
 
 let nextList = null;
@@ -541,6 +614,8 @@ async function planRoute(fromHere) {
   run.paths = run.paths || {};   // lot -> road path that leads to it
   plan.order.forEach((i, k) => { run.paths[todo[i]] = plan.paths[k]; });
   run.phase = 'route';
+  run.auto = false;
+  run.planSent = true;
   saveRun();
   renderRun();
   // the agents' page needs the whole lot list, not just the lots already photographed
@@ -794,6 +869,11 @@ async function makeThumb(source) {
 /** Queue one photo for upload. The file goes up untouched. */
 async function queuePhoto(blob, ext, thumbSource) {
   const l = lotOf(currentLot);
+  if (run.auto && !run.planSent) {
+    run.planSent = true;
+    run.auto = false;
+    await queuePut({ id: run.date + '/plan', type: 'plan', t: Date.now() - 1, lot: 'list', community: run.community, date: run.date, lots: run.lots.map(x => ({ lot: x.lot, agent: x.agent })) });
+  }
   l.seq = Math.max(l.seq || 0, l.count) + 1; // never reuse a file name, even after a lost photo
   const name = 'Lot ' + l.lot + ' - ' + run.date + ' - ' + String(l.seq).padStart(2, '0') + '.' + ext;
   // the photo's record exists before it can upload, so a fast upload always finds it
@@ -1268,6 +1348,7 @@ function renderSettings() {
       ['Last problem', delivery.lastError || 'none'],
     ].map(([k, v]) => '<b>' + esc(k) + ':</b> ' + esc(v)).join('<br>');
   });
+  $('#restore-box').classList.toggle('hide', !settings.token);
   $('#portal-links').innerHTML = !settings.url ? ''
     : settings.teamKey && settings.backend >= 3 ? '<h3 class="section">Agents\' page</h3>' +
       `<div class="card team-link"><div class="grow"><b>One link for the whole team</b><div class="muted">They click their own name. It is the link in the "photos are complete" email.${settings.passcode ? '<br>Passcode: <b style="color:#fff">' + esc(settings.passcode) + '</b> (send it to them separately)' : ''}</div></div><button class="small" data-link="${esc(teamLink())}">Copy</button><a class="btn small" href="${esc(teamLink())}" target="_blank" rel="noopener">Open</a></div>`
@@ -1292,7 +1373,25 @@ $('#portal-links').addEventListener('click', async e => {
 });
 
 /** Push agents, expiry and the next run date to Google, and learn the team link and script version. */
+/**
+ * A phone that has just been set up (or forgot everything) takes the agents, emails, passcode, next run date and
+ * expiry from Google instead of sending its blank defaults, which would erase them.
+ */
+async function adoptServer() {
+  const out = await api('ping', {});
+  if (out.agents && out.agents.length) { agents = out.agents; store.set('agents', agents); }
+  settings.passcode = out.passcode || '';
+  settings.passSet = false;
+  if (out.expireDays) settings.expireDays = out.expireDays;
+  if (out.nextRun && out.nextRun >= today()) settings.nextRun = out.nextRun;
+  settings.teamKey = out.teamKey || '';
+  settings.backend = out.version || 1;
+  settings.adopted = true;
+  store.set('settings', settings);
+}
+
 async function syncConfig() {
+  if (!settings.adopted) return adoptServer();
   const body = { agents: agents, expireDays: settings.expireDays, nextRun: settings.nextRun || '' };
   if (settings.passSet) body.passcode = settings.passcode || ''; // only once it has been typed on this phone
   const out = await api('saveAgents', body);
@@ -1403,6 +1502,12 @@ $('#fix-go').addEventListener('click', async () => {
   $('#fix-msg').textContent = done + ' photo' + (done === 1 ? '' : 's') + ' fixed.' + (failed.length ? ' ' + failed.length + (failed.length === 1 ? ' could not be fixed and was' : ' could not be fixed and were') + ' left exactly as before (' + failed[0] + '). They are still selected: press Fix again to retry.' : ' The agents see them straight on their next refresh.');
 });
 
+$('#btn-restore').addEventListener('click', async () => {
+  const link = location.origin + location.pathname + '#restore=' + encodeURIComponent(settings.token);
+  try { await navigator.clipboard.writeText(link); $('#btn-restore').textContent = 'Copied. Paste it into Apple Notes'; }
+  catch (e) { prompt('Copy this link and keep it somewhere private:', link); }
+});
+
 $('#btn-wipe').addEventListener('click', async () => {
   if (!confirm('Delete every photo run from Google Drive and clear this phone? Your agents, links and settings stay. This cannot be undone.')) return;
   if (!confirm('Really delete all photos and runs?')) return;
@@ -1421,17 +1526,26 @@ $('#btn-wipe').addEventListener('click', async () => {
 });
 
 $('#btn-save').addEventListener('click', async () => {
-  settings = Object.assign(settings, { url: $('#set-url').value.trim(), token: $('#set-token').value.trim(), expireDays: Number($('#set-expire').value) || 13, nextRun: $('#set-next').value || '', passcode: $('#set-pass').value.trim(), passSet: true });
+  const typedPass = $('#set-pass').value.trim();
+  const fresh = !settings.adopted;
+  settings = Object.assign(settings, { url: $('#set-url').value.trim() || DEFAULT_URL, token: $('#set-token').value.trim() });
+  if (!fresh) {
+    // only what was changed here is sent; a passcode is sent only when it was actually edited
+    Object.assign(settings, { expireDays: Number($('#set-expire').value) || 13, nextRun: $('#set-next').value || '' });
+    if (typedPass !== (settings.passcode || '')) { settings.passcode = typedPass; settings.passSet = true; }
+  }
   store.set('settings', settings);
   store.set('agents', agents);
   const msg = $('#set-msg');
   msg.textContent = 'Connecting...';
   try {
     await syncConfig();
-    msg.textContent = 'Connected.';
+    if (fresh) await syncConfig(); // first connect loads from Google; this second pass only rolls the date if needed
+    msg.textContent = fresh ? 'Connected. Your agents, emails and passcode were loaded from Google.' : 'Connected.';
     setStatus('Connected.');
     renderSettings();
     pump();
+    autoRoute();
   } catch (e) {
     msg.textContent = 'Could not connect: ' + e.message;
   }
@@ -1468,7 +1582,7 @@ fetch('lots.json').then(r => r.json()).then(async m => {
     settings.nextRun = d.toISOString().slice(0, 10);
     store.set('settings', settings);
   }
-  if (settings.url) { setStatus('Connected.'); pump(); syncConfig().catch(() => {}); }
+  if (settings.url) { setStatus('Connected.'); pump(); syncConfig().catch(() => {}).then(autoRoute); }
   else show('settings');
   if (run && run.phase === 'route') startGps();
 });
