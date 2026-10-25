@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 31; // bump with docs/version.txt on every release
+const VERSION = 32; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -296,8 +296,15 @@ async function pump() {
       fails++;
       delivery.lastError = new Date().toLocaleString() + ': ' + failed[0];
       store.set('delivery', delivery);
+      if (/limit exceeded|storage ?quota|insufficient/i.test(failed[0])) {
+        // Google refused to make the file: almost always a full Google storage (Drive trash counts too).
+        // Waiting longer between tries keeps the script from being throttled on top of that.
+        setStatus('Google Drive refused the photo (' + failed[0] + '). Your Google storage is probably full. ' + photos + ' photos are safe on this phone and will send once there is room. Retrying every 3 minutes.', 'err');
+        await nap(180000);
+        continue;
+      }
       setStatus('Send failed, retrying: ' + failed[0], 'err');
-      await sleep(Math.min(60000, 4000 * fails));
+      await nap(Math.min(60000, 4000 * fails));
     }
   } finally {
     pumping = false;
@@ -350,10 +357,14 @@ async function sendItem(it) {
         inFlight.delete(it.id);
       }
 }
-window.addEventListener('online', pump);
+/** A wait between retries that ends early when the app comes back to the screen or the signal returns. */
+let wakePump = null;
+const nap = ms => new Promise(r => { wakePump = r; setTimeout(r, ms); });
+window.addEventListener('online', () => { if (wakePump) wakePump(); pump(); });
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (wakePump) wakePump();
   // back from another app: a send cut off while away would otherwise hang, so start it again
   // (Google skips a photo it already has, so a resend never makes a copy)
   if (hiddenAt && Date.now() - hiddenAt > 5000) liveRequests.forEach(c => { c.why = 'resume'; c.abort(); });
