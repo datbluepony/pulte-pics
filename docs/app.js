@@ -12,7 +12,7 @@ const store = {
   set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
 };
 
-const VERSION = 30; // bump with docs/version.txt on every release
+const VERSION = 31; // bump with docs/version.txt on every release
 const COMMUNITY = 'Verdana Village';
 const START = [1323, 204]; // main entry guard house, in map image pixels
 const ARRIVED_M = 25;
@@ -73,12 +73,25 @@ const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getT
 
 async function api(action, body) {
   if (!settings.url) throw new Error('Add the Google web app URL in Settings first.');
-  // text/plain body keeps this a "simple" request, which Apps Script web apps need
-  const res = await fetch(settings.url, { method: 'POST', body: JSON.stringify(Object.assign({ action, token: settings.token }, body)) });
-  const out = await res.json();
-  if (!out.ok) throw new Error(out.error || 'Request failed');
-  return out;
+  // a request with no answer (weak signal, or cut off while the app was in the background) gives up and is retried
+  const ctl = new AbortController();
+  liveRequests.add(ctl);
+  const timer = setTimeout(() => ctl.abort(), /^(upload|getPhoto|replacePhoto)$/.test(action) ? 180000 : 90000);
+  try {
+    // text/plain body keeps this a "simple" request, which Apps Script web apps need
+    const res = await fetch(settings.url, { method: 'POST', body: JSON.stringify(Object.assign({ action, token: settings.token }, body)), signal: ctl.signal });
+    const out = await res.json();
+    if (!out.ok) throw new Error(out.error || 'Request failed');
+    return out;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(ctl.why === 'resume' ? 'restarted after the app was in the background' : 'no answer from Google in time (weak signal)');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    liveRequests.delete(ctl);
+  }
 }
+const liveRequests = new Set(); // requests in progress
 
 const toBase64 = blob => new Promise((resolve, reject) => {
   const r = new FileReader();
@@ -89,27 +102,77 @@ const toBase64 = blob => new Promise((resolve, reject) => {
 
 // ---------- upload queue (IndexedDB so photos survive a reload) ----------
 
-const db = new Promise((resolve, reject) => {
-  const req = indexedDB.open('pulte-pics', 1);
-  req.onupgradeneeded = () => req.result.createObjectStore('queue', { keyPath: 'id' });
-  req.onsuccess = () => resolve(req.result);
-  req.onerror = () => reject(req.error);
-});
-const tx = async (mode, fn) => {
-  const d = await db;
-  return new Promise((resolve, reject) => {
-    const t = d.transaction('queue', mode);
-    const r = fn(t.objectStore('queue'));
-    t.oncomplete = () => resolve(r && r.result);
-    t.onerror = () => reject(t.error);
+// Two stores: "queue" holds the small details of each item waiting to send, "bufs" holds each photo's bytes.
+// Listing what is waiting reads only the details, so 80 photos waiting never means hundreds of MB in memory.
+let db = null;
+function openDb() {
+  db = new Promise((resolve, reject) => {
+    const req = indexedDB.open('pulte-pics', 2);
+    req.onupgradeneeded = e => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains('queue')) d.createObjectStore('queue', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('bufs')) d.createObjectStore('bufs', { keyPath: 'id' });
+      if (e.oldVersion === 1) {
+        // photos saved by the older version kept their bytes inline: move them across, nothing is dropped
+        const t = req.transaction, b = t.objectStore('bufs');
+        t.objectStore('queue').openCursor().onsuccess = ev => {
+          const c = ev.target.result;
+          if (!c) return;
+          const it = c.value;
+          if (it.buf || it.blob) {
+            b.put({ id: it.id, buf: it.buf, blob: it.blob });
+            delete it.buf; delete it.blob;
+            c.update(it);
+          }
+          c.continue();
+        };
+      }
+    };
+    req.onsuccess = () => {
+      const d = req.result;
+      // iPhone can close the connection while the app is in the background: open a new one next time
+      d.onclose = () => { db = null; };
+      d.onversionchange = () => { d.close(); db = null; };
+      resolve(d);
+    };
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('the app is open twice; close the other copy'));
   });
-};
+  return db;
+}
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error(what + ' did not answer')), ms))]);
+
+/** One storage transaction over the named stores. A dropped connection is opened again and the work tried once more. */
+async function tx(names, mode, fn, again) {
+  try {
+    const d = await withTimeout(db || openDb(), 10000, 'Phone storage');
+    return await withTimeout(new Promise((resolve, reject) => {
+      const t = d.transaction(names, mode);
+      const r = fn(...[].concat(names).map(n => t.objectStore(n)));
+      t.oncomplete = () => resolve(r && r.result);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error || new Error('Phone storage cancelled the change'));
+    }), 20000, 'Phone storage');
+  } catch (e) {
+    if (again) throw e;
+    try { if (db) (await db).close(); } catch (x) { /* already gone */ }
+    db = null;
+    return tx(names, mode, fn, true);
+  }
+}
+
 // If the phone refuses to store an item, it waits in memory instead, so nothing taken is dropped
 // while the app stays open.
 const memQueue = [];
 const queuePut = async item => {
   try {
-    await tx('readwrite', s => s.put(item));
+    if (item.buf) {
+      const meta = Object.assign({}, item);
+      delete meta.buf;
+      await tx(['queue', 'bufs'], 'readwrite', (q, b) => { b.put({ id: item.id, buf: item.buf }); return q.put(meta); });
+    } else {
+      await tx('queue', 'readwrite', q => q.put(item));
+    }
   } catch (e) {
     memQueue.push(item);
     // warn plainly: these photos are lost if the app is closed before they send
@@ -119,25 +182,52 @@ const queuePut = async item => {
 const queueDel = async id => {
   const i = memQueue.findIndex(m => m.id === id);
   if (i >= 0) { memQueue.splice(i, 1); return; }
-  await tx('readwrite', s => s.delete(id));
+  await tx(['queue', 'bufs'], 'readwrite', (q, b) => { b.delete(id); return q.delete(id); });
 };
+/**
+ * Everything waiting, oldest first. When the phone's storage cannot be read right now the list is marked
+ * partial: that is never taken to mean "nothing is waiting".
+ */
 const queueAll = async () => {
-  let stored = [];
-  try { stored = await tx('readonly', s => s.getAll()); } catch (e) { /* storage unavailable: memory only */ }
-  return stored.concat(memQueue).sort((a, b) => a.t - b.t);
+  let stored = [], partial = false;
+  try { stored = await tx('queue', 'readonly', q => q.getAll()); } catch (e) { partial = true; }
+  const all = stored.concat(memQueue).sort((a, b) => a.t - b.t);
+  all.partial = partial;
+  return all;
 };
+/** A waiting photo's bytes, read only when it is about to go up. */
+async function photoBytes(it) {
+  if (it.buf) return new Blob([it.buf]);
+  if (it.blob) return it.blob;
+  const row = await tx('bufs', 'readonly', b => b.get(it.id));
+  if (!row) throw new Error('MISSING');
+  return row.buf ? new Blob([row.buf]) : row.blob;
+}
+
+/** A photo whose bytes never made it into storage: take it off the lot, and put the lot back on the route if it has none left. */
+function lostPhotos(lotsLost) {
+  if (!lotsLost.length) return;
+  lotsLost.forEach(n => { const l = lotOf(n); if (l && !l.count) l.done = false; });
+  saveRun();
+  setTimeout(() => alert('Some photos of lot ' + lotsLost.join(', ') + ' were not saved on this phone before it closed. Please retake ' + (lotsLost.length === 1 ? 'that lot' : 'those lots') + '.'), 300);
+}
 
 /** Drop photos that were counted but never made it into the queue, so the numbers are honest. */
 async function reconcile() {
   if (!run) return;
   const items = await queueAll();
+  if (items.partial) return; // storage could not be read just now: change nothing
+  const lost = [];
   run.lots.forEach(l => {
     const waiting = items.filter(i => i.type === 'photo' && i.date === run.date && i.lot === l.lot).map(i => i.name);
     l.seq = Math.max(l.seq || 0, l.count || 0);
+    const before = (l.photos || []).length;
     l.photos = (l.photos || []).filter(ph => ph.id || waiting.indexOf(ph.name) >= 0);
+    if (l.photos.length < before) lost.push(l.lot);
     l.count = l.sent + waiting.length;
   });
   saveRun();
+  lostPhotos(lost);
 }
 
 let pumping = false;
@@ -164,11 +254,19 @@ function setStatus(text, cls) {
 async function pump() {
   if (pumping || !settings.url) return;
   pumping = true;
-  let fails = 0;
+  let fails = 0, readFails = 0;
   try {
     for (;;) {
       const items = await queueAll();
       const photos = items.filter(i => i.type === 'photo').length;
+      if (items.partial && !items.length) {
+        // the saved photos could not be read just now: they are still there, so never say "all sent"
+        if (++readFails > 5) { setStatus('Could not read the photos saved on this phone. Close the app fully and open it again. Nothing is deleted.', 'err'); break; }
+        setStatus('Reopening the photos saved on this phone...', 'busy');
+        await sleep(3000);
+        continue;
+      }
+      if (!items.partial) readFails = 0;
       if (!items.length) {
         setStatus(run ? 'Everything is sent.' : 'Connected.');
         // last lot is in: tell the agents without being asked
@@ -213,7 +311,22 @@ async function sendItem(it) {
       inFlight.add(it.id);
       try {
         if (it.type === 'photo') {
-          const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(it.buf ? new Blob([it.buf]) : it.blob) });
+          let bytes;
+          try { bytes = await photoBytes(it); } catch (e) {
+            if (e.message !== 'MISSING') throw e;
+            // the details were saved but the photo itself never was: nothing to send, so say which lot to retake
+            await queueDel(it.id);
+            const l = run && run.date === it.date && lotOf(it.lot);
+            if (l) {
+              l.photos = (l.photos || []).filter(ph => ph.name !== it.name);
+              l.count = Math.max(0, l.count - 1);
+              lostPhotos([l.lot]);
+            }
+            return true;
+          }
+          // a Google answer that the photo was already there (a resend) counts the same as a new upload
+          const up = await api('upload', { community: it.community, date: it.date, agent: it.agent, lot: it.lot, name: it.name, mime: it.mime, data: await toBase64(bytes) });
+          bytes = null;
           const lot = run && run.date === it.date && lotOf(it.lot);
           if (lot) {
             // the Drive file id is the proof this photo arrived; the count is worked out from those, never added up
@@ -238,7 +351,14 @@ async function sendItem(it) {
       }
 }
 window.addEventListener('online', pump);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) pump(); });
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  // back from another app: a send cut off while away would otherwise hang, so start it again
+  // (Google skips a photo it already has, so a resend never makes a copy)
+  if (hiddenAt && Date.now() - hiddenAt > 5000) liveRequests.forEach(c => { c.why = 'resume'; c.abort(); });
+  pump();
+});
 
 // ---------- tabs ----------
 
@@ -1396,7 +1516,7 @@ function renderSettings() {
     $('#diag').innerHTML = [
       ['App version', VERSION],
       ['Google', settings.url ? 'connected' : 'not set up yet'],
-      ['Waiting to send', items.filter(i => i.type === 'photo').length + ' photos, ' + items.filter(i => i.type === 'note').length + ' notes' + (memQueue.length ? ' (' + memQueue.length + ' held in memory only: keep the app open)' : '')],
+      ['Waiting to send', items.partial ? 'could not read phone storage just now (nothing is deleted; reopen the app)' : items.filter(i => i.type === 'photo').length + ' photos, ' + items.filter(i => i.type === 'note').length + ' notes' + (memQueue.length ? ' (' + memQueue.length + ' held in memory only: keep the app open)' : '')],
       ['Last delivered', delivery.lastOk || 'nothing yet'],
       ['Last problem', delivery.lastError || 'none'],
     ].map(([k, v]) => '<b>' + esc(k) + ':</b> ' + esc(v)).join('<br>');
@@ -1570,7 +1690,7 @@ $('#btn-wipe').addEventListener('click', async () => {
     history = {}; store.set('history', history);
     delivery = { lastOk: '', lastError: '' }; store.set('delivery', delivery);
     memQueue.length = 0;
-    try { await tx('readwrite', s => s.clear()); } catch (e) { /* nothing stored */ }
+    try { await tx(['queue', 'bufs'], 'readwrite', (q, b) => { b.clear(); return q.clear(); }); } catch (e) { /* nothing stored */ }
     alert('Done. ' + out.runs + ' photo run' + (out.runs === 1 ? '' : 's') + ' removed from Google Drive. You are starting fresh.');
     renderSettings(); renderRun(); setStatus('Connected.');
   } catch (e) {
